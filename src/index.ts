@@ -12,7 +12,7 @@ app.use(express.json());
 app.get('/api/health', (req: Request, res: Response) => {
     res.status(200).json({ 
         status: 'success', 
-        message: '🚀 API de RouteRobots funcionando a la perfección' 
+        message: 'API de RouteRobots funcionando correctamente' 
     });
 });
 
