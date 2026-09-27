@@ -1,41 +1,33 @@
-Nombre del proyecto: RouteRobots
+# RouteRobots
 
-Alumno: Facundo Daza
+**Plataforma SaaS para la evaluación inteligente de rutas para robots autónomos de reparto.**
 
-Evaluación inteligente de rutas para robots autónomos de reparto
 
-Descripción del problema
 
-Los robots delivery necesitan evaluar factores como la pendiente, el clima, el estado del recorrido y su autonomía. Esta información se encuentra distribuida entre diferentes servicios, lo que dificulta seleccionar una ruta segura y adecuada. 
+La planificación de entregas con robots terrestres enfrenta un desafío crítico: factores determinantes como la pendiente del terreno, el clima y la autonomía de la batería se encuentran dispersos en múltiples servicios, dificultando la elección de trayectos seguros. **RouteRobots** centraliza esta toma de decisiones en una herramienta de planificación. 
 
-Propuesta de valor
+El diferencial de la plataforma es su motor de **Inteligencia Artificial integrado mediante MCP (Model Context Protocol)**. En lugar de mostrar datos crudos, la IA consulta APIs externas en tiempo real (clima, mapas, elevación), cruza esa información con el perfil del robot y emite un veredicto fundamentado: ruta apta, apta con supervisión o no recomendada, estimando los riesgos y el consumo de batería.
 
-RouteRobots será una plataforma SaaS para evaluar rutas antes de una entrega. El usuario indicará el origen, destino y características del robot, mientras que una IA consultará mediante MCP información sobre recorridos, pendiente y clima. El sistema clasificará la ruta como apta, apta con supervisión o no recomendada, explicando los motivos y estimando el consumo de batería.
+**Alcance del MVP y Usuarios Objetivo:**
+El producto inicial está enfocado como una herramienta de software puro (sin control de hardware) con un *sandbox* operativo en Washington D. C., orientado a:
+- Empresas de logística y flotas de reparto autónomo.
+- Universidades y centros de investigación tecnológica.
 
-Usuarios objetivo
+## Stack Tecnológico
+- **Frontend:** React y TypeScript (Despliegue en Vercel)
+- **Backend y MCP:** Node.js con Express
+- **Base de datos:** PostgreSQL (Neon.tech / Serverless)
+- **Mapas, Rutas y Clima:** OpenStreetMap, OpenRouteService y Open-Meteo
+- **Cloud & Infraestructura:** Arquitectura distribuida usando PaaS/Serverless
+- **CI/CD:** GitHub Actions
+- **Observabilidad:** Sentry y Application Logs
 
-Empresas de reparto autónomo, universidades y centros de investigación. El MVP se enfocará inicialmente en Washington D. C., donde estos robots están autorizados para operar y existe información pública para desarrollar la solución. Posteriormente, podrá extenderse a otras ciudades según la disponibilidad de datos.
+## Checkpoint 1
 
-Alcance del MVP
+### Entorno de Despliegue
+- **Backend API (Health Check):** [https://route-robots-api.onrender.com/api/health]
 
-Permitirá registrar usuarios y robots, seleccionar un recorrido en un mapa, consultar rutas alternativas, clima y elevación, evaluar sus riesgos y guardar los resultados. Será una herramienta de planificación y no controlará robots reales.
+*(Nota: Estoy usando el plan gratuito, entonces en la primera petición el servicio puede tardar unos 50 segundos para despertar, pero las siguientes serán instantáneas).*
 
-Inteligencia Artificial y MCP
-
-La IA utilizará herramientas MCP (Model context protocol) para consultar servicios externos y comparar los datos obtenidos con las limitaciones del robot. Así podrá generar una recomendación basada en información actualizada.
-
-Stack tecnológico tentativo ( se ira adaptando según los inconvenientes)
-
-Frontend: React y TypeScript (Despliegue en Vercel).
-
-Backend y MCP: Node.js con Express (Alojado en Render).
-
-Base de datos: PostgreSQL (Neon.tech / Serverless).
-
-Mapas, Rutas y Clima: OpenStreetMap, OpenRouteService y Open-Meteo (APIs públicas).
-
-Cloud & Infraestructura: Arquitectura distribuida usando PaaS/Serverless (Vercel/Render).
-
-CI/CD: GitHub Actions.
-
-Observabilidad: Sentry (monitoreo de errores) y application logs.
+### Diagrama de Arquitectura Cloud
+![Diagrama de Arquitectura Cloud](./docs/assets/DiagramaCloud.png)
