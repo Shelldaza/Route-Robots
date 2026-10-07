@@ -7,7 +7,7 @@ on:
     branches: [main, develop]
   workflow_dispatch:
 permissions:
-  contens: read
+  contents: read
 
 jobs:
   frontend:
