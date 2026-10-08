@@ -1,0 +1,242 @@
+.home-page {
+  --home-red: #c9190b;
+  --home-red-hover: #a30000;
+  --home-text: #151515;
+  --home-muted: #4d4d4d;
+  --home-border: #dedede;
+  --home-gutter: clamp(20px, 4vw, 72px);
+
+  min-height: 100svh;
+  color: var(--home-text);
+  background: #fff;
+  font-family: 'Red Hat Text', Arial, sans-serif;
+  line-height: 1.6;
+}
+
+.home-page a {
+  color: inherit;
+}
+
+.home-page a:focus-visible {
+  outline: 3px solid #0066cc;
+  outline-offset: 5px;
+}
+
+/* Encabezado */
+
+.home-page .home-header {
+  border-bottom: 1px solid var(--home-border);
+  background: #fff;
+}
+
+.home-page .nav-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  min-height: 88px;
+  padding: 18px var(--home-gutter);
+}
+
+/* Logo: robot y nombre */
+
+.home-page .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin: 0;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.home-page .brand-robot {
+  display: block;
+  width: 64px;
+  height: auto;
+}
+
+.home-page .brand-name {
+  display: block;
+  width: 210px;
+  height: auto;
+}
+
+/* Navegación */
+
+.home-page .header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 36px;
+  margin-left: auto;
+}
+
+.home-page .landing-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.home-page .landing-nav a {
+  padding: 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  text-underline-offset: 6px;
+}
+
+.home-page .landing-nav a:hover {
+  text-decoration: underline;
+}
+
+/* Botones */
+
+.home-page .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-height: 52px;
+  padding: 14px 24px;
+  border: 1px solid var(--home-red);
+  border-radius: 0;
+  color: #fff;
+  background: var(--home-red);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.home-page .button:hover {
+  border-color: var(--home-red-hover);
+  background: var(--home-red-hover);
+}
+
+.home-page .button-small {
+  min-height: 44px;
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.home-page .button span {
+  font-size: 19px;
+  line-height: 1;
+}
+
+/* Presentación principal */
+
+.home-page .hero {
+  padding:
+    clamp(64px, 8vw, 120px)
+    var(--home-gutter)
+    clamp(72px, 9vw, 136px);
+}
+
+.home-page .hero-copy {
+  max-width: 1120px;
+}
+
+.home-page .eyebrow {
+  display: block;
+  margin-bottom: 28px;
+  color: var(--home-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  line-height: 1.6;
+}
+
+.home-page .hero h1 {
+  margin: 0 0 28px;
+  color: var(--home-text);
+  font-family: 'Red Hat Display', Arial, sans-serif;
+  font-size: clamp(38px, 4.5vw, 68px);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
+
+.home-page .hero-copy > p {
+  max-width: 780px;
+  margin: 0 0 20px;
+  font-size: clamp(19px, 1.8vw, 24px);
+  line-height: 1.5;
+}
+
+.home-page .hero-copy > .hero-description {
+  max-width: 730px;
+  margin-bottom: 0;
+  color: var(--home-muted);
+  font-size: 17px;
+  line-height: 1.8;
+}
+
+.home-page .hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin-top: 36px;
+}
+
+/* Adaptación a pantallas pequeñas */
+
+@media (max-width: 760px) {
+  .home-page .nav-wrap {
+    flex-wrap: wrap;
+    gap: 18px;
+    min-height: 80px;
+  }
+
+  .home-page .header-right {
+    gap: 20px;
+  }
+
+  .home-page .landing-nav {
+    gap: 16px;
+  }
+
+  .home-page .hero h1 br {
+    display: none;
+  }
+
+  .home-page .eyebrow {
+    max-width: 330px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 480px) {
+  .home-page .brand {
+    gap: 8px;
+  }
+
+  .home-page .brand-robot {
+    width: 48px;
+  }
+
+  .home-page .brand-name {
+    width: 175px;
+  }
+
+  .home-page .header-right {
+    justify-content: space-between;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .home-page .hero-copy > .hero-description {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-page .button {
+    transition: none;
+  }
+}

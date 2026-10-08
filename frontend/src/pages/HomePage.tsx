@@ -1,16 +1,18 @@
 import { Link } from 'react-router'
+import robotLogo from '../assets/robot-logo.jpg'
+import brandName from '../assets/routerobots-name.jpg'
+import './HomePage.css'
 
 function HomePage() {
   return (
     <div className="home-page">
       <header className="home-header">
         <div className="nav-wrap">
-          <Link className="brand" to="/">
-            <span className="brand-symbol" aria-hidden="true">
-              ↗
-            </span>
-            RouteRobots
-          </Link>
+          <Link className="brand" to="/"
+          aria-label="RouteRobots — Inicio">
+            <img className="brand-robot" src={robotLogo} alt="" />
+            <img className="brand-name" src={brandName} alt="" />
+           </Link>
 
           <div className="header-right">
             <nav aria-label="Principal" className="landing-nav">
