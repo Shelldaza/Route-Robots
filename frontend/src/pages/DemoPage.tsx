@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './DemoPage.css'
+import { Link } from 'react-router'
 
 type RouteResponse = {
   geometry: {
@@ -190,6 +191,8 @@ function DemoPage() {
 
   return (
     <main className="workspace">
+      <Link to="/">← Volver al inicio</Link>
+
       <header className="header">
         <div>
           <p className="brand">RouteRobots</p>
