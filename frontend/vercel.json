@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://route-robots-api-pr-18.onrender.com/api/:path*"
+      "destination": "https://route-robots-api.onrender.com/api/:path*"
     }
   ]
 }
