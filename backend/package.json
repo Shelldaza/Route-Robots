@@ -20,7 +20,9 @@
   },
   "homepage": "https://github.com/Shelldaza/Route-Robots#readme",
   "dependencies": {
-    "express": "^5.2.1"
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
