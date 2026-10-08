@@ -131,12 +131,29 @@
 /* Presentación principal */
 
 .home-page .hero {
-  padding:
-    clamp(64px, 8vw, 120px)
-    var(--home-gutter)
-    clamp(72px, 9vw, 136px);
-}
+  min-height: 820px;
+  display: flex;
+  align-items: center;
 
+  padding:
+    clamp(64px, 6vw, 88px)
+    var(--home-gutter);
+
+  background-color: #fff;
+  background-image:
+    linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(255, 255, 255, 0.85) 38%,
+      rgba(255, 255, 255, 0.3) 52%,
+      rgba(255, 255, 255, 0) 65%
+    ),
+    url('../assets/home-background.jpg');
+
+  background-repeat: no-repeat;
+  background-position: center, right 60%;
+  background-size: cover;
+}
 .home-page .hero-copy {
   max-width: 1120px;
 }
@@ -172,7 +189,7 @@
   max-width: 730px;
   margin-bottom: 0;
   color: var(--home-muted);
-  font-size: 17px;
+  font-size: 20px;
   line-height: 1.8;
 }
 
@@ -238,5 +255,32 @@
 @media (prefers-reduced-motion: reduce) {
   .home-page .button {
     transition: none;
+  }
+}
+/* Fondo de la presentación en tablets y celulares */
+
+@media (max-width: 1100px) {
+  .home-page .hero {
+    background-image:
+      linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0.98) 0%,
+        rgba(255, 255, 255, 0.94) 50%,
+        rgba(255, 255, 255, 0.65) 75%,
+        rgba(255, 255, 255, 0.25) 100%
+      ),
+      url('../assets/home-background.jpg');
+  }
+}
+
+@media (max-width: 760px) {
+  .home-page .hero {
+    min-height: auto;
+    padding-top: 48px;
+    padding-bottom: calc(55.8vw + 32px);
+
+    background-image: url('../assets/home-background.jpg');
+    background-size: 100% auto;
+    background-position: center bottom;
   }
 }

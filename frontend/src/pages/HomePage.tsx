@@ -30,25 +30,20 @@ function HomePage() {
         <section className="hero" id="plataforma">
           <div className="hero-copy">
             <span className="eyebrow">
-              COORDINACIÓN INTELIGENTE PARA ROBOTS DE REPARTO
+              PLATAFORMA SAAS DE PLANIFICACIÓN Y COORDINACIÓN DE FLOTAS
             </span>
 
             <h1>
-              El próximo robot no debería
+              UNA COMUNIDAD DE ROBOTS
               <br />
-              encontrar el mismo obstáculo.
+              QUE APRENDE EN CADA
+              <br /> RECORRIDO.
             </h1>
-
-            <p>
-              La experiencia de una flota puede prevenir y mejorar las decisiones
-              de toda la red.
-            </p>
-
+           
             <p className="hero-description">
-              RouteRobots es una plataforma SaaS que conecta las
-              capacidades de cada robot con la información del entorno.
-              Su objetivo es asignar recorridos, interpretar reportes
-              y conservar lo aprendido para actuales y futuras misiones mediante el analisis con inteligencia artificial.
+                RouteRobots reúne la telemetría y los reportes de incidentes de cada robot, mediante inteligencia artificial
+                y una memoria operacional compartida, transforma esas observaciones en contexto 
+                para evaluar y asignar rutas, responder ante cambios y coordinar futuras entregas con menos intervención humana.
             </p>
 
             <div className="hero-actions">
