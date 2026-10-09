@@ -24,7 +24,8 @@ El producto inicial está enfocado como una herramienta de software puro (sin co
 
 ## Checkpoint 1
 
-### Entorno de Despliegue
+### Entornos de Despliegue
+- **Frontend en Vercel:** [https://route-robots.vercel.app/]
 - **Backend API (Health Check):** [https://route-robots-api.onrender.com/api/health]
 
 *(Nota: Estoy usando el plan gratuito, entonces en la primera petición el servicio puede tardar unos 50 segundos para despertar, pero las siguientes serán instantáneas).*
