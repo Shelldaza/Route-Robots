@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './DemoPage.css'
+import RobotSetupSection from '../components/RobotSetupSection'
 import { Link } from 'react-router'
+import robotLogo from '../assets/robot-logo.jpg'
+import brandName from '../assets/routerobots-name.jpg'
 
 type RouteResponse = {
   geometry: {
@@ -190,19 +193,49 @@ function DemoPage() {
         : 'Origen y destino seleccionados. Podés calcular la ruta.'
 
   return (
-    <main className="workspace">
-      <Link to="/">← Volver al inicio</Link>
+    <div className="demo-page">
+      <header className="demo-header">
+        <div className="demo-nav-wrap">
+          <Link
+            className="demo-brand"
+            to="/"
+            aria-label="RouteRobots — Inicio"
+          >
+            <img
+              className="demo-brand-robot"
+              src={robotLogo}
+              alt=""
+            />
+            <img
+              className="demo-brand-name"
+              src={brandName}
+              alt=""
+            />
+          </Link>
 
-      <header className="header">
-        <div>
-          <p className="brand">RouteRobots</p>
-          <h1>Planificación de rutas</h1>
-          <p>Área de prueba: Washington D. C.</p>
+          <nav className="demo-nav" aria-label="Principal">
+            <Link to="/">Plataforma</Link>
+
+            <Link
+              className="demo-nav-button"
+              to="/demo"
+              aria-current="page"
+            >
+              Abrir demo <span aria-hidden="true">↗</span>
+            </Link>
+          </nav>
         </div>
-
-        <span className="badge">Prototipo</span>
       </header>
 
+      <main className="workspace">
+        <div className="demo-heading">
+          <h1>Preparar entrega</h1>
+          <p>
+            Configurá el robot y elegí el recorrido en Washington D. C.
+          </p>
+        </div>
+
+        <RobotSetupSection />
       <div className="layout">
         <aside className="panel">
           <h2>Seleccionar recorrido</h2>
@@ -279,6 +312,7 @@ function DemoPage() {
         />
       </div>
     </main>
+    </div>
   )
 }
 

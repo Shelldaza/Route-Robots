@@ -1,0 +1,184 @@
+.robot-setup {
+  margin-block: 28px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid #dedede;
+  background: #fff;
+  color: #151515;
+  font-family: 'Red Hat Text', Arial, sans-serif;
+}
+
+.robot-setup-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 32px;
+}
+
+.robot-setup-step {
+  margin: 0 0 12px;
+  color: #a30000;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.robot-setup-heading h2 {
+  margin: 0;
+  font-family: 'Red Hat Display', Arial, sans-serif;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.6px;
+}
+
+.robot-setup-heading h2 + p {
+  max-width: 580px;
+  margin: 12px 0 0;
+  color: #555;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.robot-setup-selection {
+  width: min(100%, 320px);
+  flex-shrink: 0;
+}
+
+.robot-setup label {
+  display: block;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.robot-setup input,
+.robot-setup select {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 8px;
+  padding: 11px 12px;
+  border: 1px solid #aaa;
+  border-radius: 0;
+  background: #fff;
+  color: #151515;
+  font: inherit;
+  font-size: 16px;
+}
+
+.robot-setup input::placeholder {
+  color: #767676;
+}
+
+.robot-setup select:disabled {
+  background: #f5f5f5;
+  color: #666;
+  cursor: not-allowed;
+}
+
+.robot-setup input:focus-visible,
+.robot-setup select:focus-visible,
+.robot-setup summary:focus-visible,
+.robot-setup button:focus-visible {
+  outline: 3px solid #0066cc;
+  outline-offset: 3px;
+}
+
+.robot-setup-details {
+  margin-top: 28px;
+  border-top: 1px solid #dedede;
+}
+
+.robot-setup-details summary {
+  padding-block: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.robot-setup fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.robot-setup legend {
+  margin-bottom: 20px;
+  padding: 0;
+  color: #555;
+  font-size: 14px;
+}
+
+.robot-setup-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.robot-setup-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #dedede;
+}
+
+.robot-setup-footer p {
+  max-width: 650px;
+  margin: 0;
+  color: #555;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.robot-setup-footer button {
+  flex-shrink: 0;
+  min-height: 46px;
+  padding: 12px 20px;
+  border: 1px solid #c9190b;
+  border-radius: 0;
+  background: #c9190b;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.robot-setup-footer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1000px) {
+  .robot-setup-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .robot-setup-heading,
+  .robot-setup-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .robot-setup-selection {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .robot-setup-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.robot-setup-fields small {
+  display: block;
+  margin-top: 8px;
+  color: #666;
+  font-size: 12px;
+  line-height: 1.6;
+}
