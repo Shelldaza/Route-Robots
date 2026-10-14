@@ -296,6 +296,13 @@ function DemoPage() {
                 })}{' '}
                 minutos
               </p>
+              <Link
+                  className="simulation-link"
+                  to="/simulacion"
+                  state={{ route }}
+                  >
+                  Ver seguimiento de la entrega →
+              </Link>
             </div>
           )}
 

@@ -1,0 +1,326 @@
+.simulation-page {
+  background: #f5f5f5;
+  color: #151515;
+  font-family: 'Red Hat Text', Arial, sans-serif;
+}
+
+.simulation-page .simulation-workspace {
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 36px 28px 60px;
+}
+
+.simulation-page .simulation-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.simulation-page .simulation-eyebrow {
+  margin: 0 0 12px;
+  color: #666;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.simulation-page .simulation-heading h1 {
+  margin: 0 0 12px;
+  font-family: 'Red Hat Display', Arial, sans-serif;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.8px;
+}
+
+.simulation-page .simulation-heading h1 + p {
+  margin: 0;
+  color: #555;
+  font-size: 15px;
+}
+
+.simulation-page .simulation-state {
+  padding: 10px 16px;
+  background: #e8e8e8;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.simulation-page .simulation-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-top: 32px;
+}
+
+.simulation-page .simulation-clock span {
+  display: block;
+  color: #666;
+  font-size: 12px;
+}
+
+.simulation-page .simulation-clock strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.simulation-page .simulation-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.simulation-page .simulation-controls label {
+  color: #555;
+  font-size: 12px;
+}
+
+.simulation-page .simulation-controls button,
+.simulation-page .simulation-controls select {
+  min-height: 42px;
+  padding: 10px 14px;
+  border: 1px solid #aaa;
+  border-radius: 0;
+  background: #fff;
+  color: #151515;
+  font: inherit;
+  font-size: 14px;
+}
+
+.simulation-page .simulation-controls select {
+  display: block;
+  margin-top: 6px;
+}
+
+.simulation-page .simulation-controls button:first-child {
+  border-color: #c9190b;
+  background: #c9190b;
+  color: #fff;
+}
+
+.simulation-page .simulation-controls :disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.simulation-page .simulation-notice {
+  margin: 24px 0;
+  color: #666;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.simulation-page .simulation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+}
+
+.simulation-page .simulation-map-panel,
+.simulation-page .simulation-card {
+  min-width: 0;
+  border: 1px solid #dedede;
+  background: #fff;
+}
+
+.simulation-page .simulation-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 20px;
+}
+
+.simulation-page .simulation-panel-heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.simulation-page .simulation-panel-heading > span {
+  color: #666;
+  font-size: 13px;
+}
+
+.simulation-page .simulation-map {
+  height: 480px;
+}
+
+.simulation-page .simulation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 16px 20px;
+  color: #555;
+  font-size: 12px;
+}
+
+.simulation-page .simulation-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.simulation-page .simulation-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.simulation-page .legend-origin {
+  background: #15803d;
+}
+
+.simulation-page .legend-destination {
+  background: #2563eb;
+}
+
+.simulation-page .simulation-legend .legend-route {
+  width: 22px;
+  height: 3px;
+  border-radius: 0;
+  background: #0f766e;
+}
+
+.simulation-page .simulation-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  margin: 0;
+  padding: 24px 20px;
+  border-top: 1px solid #dedede;
+}
+
+.simulation-page .simulation-metrics dt {
+  color: #666;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.simulation-page .simulation-metrics dd {
+  margin: 10px 0 0;
+  font-size: 23px;
+  font-weight: 500;
+}
+
+.simulation-page .simulation-side {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.simulation-page .simulation-card {
+  padding: 24px;
+}
+
+.simulation-page .simulation-card h2 {
+  margin: 0 0 16px;
+  font-family: 'Red Hat Display', Arial, sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.simulation-page .simulation-card > p:not(.simulation-eyebrow) {
+  margin: 0;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.simulation-page .simulation-checks {
+  margin: 20px 0 0;
+  font-size: 13px;
+}
+
+.simulation-page .simulation-checks > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 0;
+  border-top: 1px solid #dedede;
+}
+
+.simulation-page .simulation-checks dd {
+  margin: 0;
+  color: #666;
+  text-align: right;
+}
+
+.simulation-page .simulation-activity {
+  margin: 0;
+  padding-left: 20px;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.simulation-page .simulation-incidents {
+  margin-top: 24px;
+}
+
+.simulation-page .simulation-empty {
+  padding: 32px;
+  border: 1px solid #dedede;
+  background: #fff;
+}
+
+.simulation-page .simulation-empty h1 {
+  margin-top: 0;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.simulation-page .simulation-empty p {
+  color: #555;
+  line-height: 1.8;
+}
+
+.simulation-page .simulation-empty a {
+  display: inline-block;
+  margin-top: 12px;
+  color: #a30000;
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .simulation-page .simulation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-page .simulation-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 650px) {
+  .simulation-page .simulation-workspace {
+    padding: 28px 16px 40px;
+  }
+
+  .simulation-page .simulation-heading {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .simulation-page .simulation-side {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-page .simulation-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .simulation-page .simulation-map {
+    height: 360px;
+  }
+}
