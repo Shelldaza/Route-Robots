@@ -3,6 +3,7 @@ import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './DemoPage.css'
 import RobotSetupSection from '../components/RobotSetupSection'
+import type { Robot } from '../components/RobotSetupSection'
 import { Link } from 'react-router'
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
@@ -27,6 +28,7 @@ function DemoPage() {
   const [route, setRoute] = useState<RouteResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -235,7 +237,13 @@ function DemoPage() {
           </p>
         </div>
 
-        <RobotSetupSection />
+        <RobotSetupSection onRobotSelected={setSelectedRobot} />
+
+        {selectedRobot && (
+            <p className="demo-robot-summary" role="status">
+              Robot seleccionado: <strong>{selectedRobot.name}</strong>
+            </p>
+          )}
       <div className="layout">
         <aside className="panel">
           <h2>Seleccionar recorrido</h2>
