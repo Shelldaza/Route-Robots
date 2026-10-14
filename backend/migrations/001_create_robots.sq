@@ -1,0 +1,48 @@
+BEGIN;
+
+CREATE TABLE robots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    name TEXT NOT NULL
+        CHECK (char_length(btrim(name)) BETWEEN 1 AND 80),
+
+    model TEXT
+        CHECK (
+            model IS NULL
+            OR char_length(btrim(model)) BETWEEN 1 AND 80
+        ),
+
+    speed_kmh DOUBLE PRECISION NOT NULL
+        CHECK (
+            speed_kmh > 0
+            AND speed_kmh < 'Infinity'::DOUBLE PRECISION
+        ),
+
+    battery_capacity_wh DOUBLE PRECISION NOT NULL
+        CHECK (
+            battery_capacity_wh > 0
+            AND battery_capacity_wh < 'Infinity'::DOUBLE PRECISION
+        ),
+
+    consumption_wh_per_km DOUBLE PRECISION NOT NULL
+        CHECK (
+            consumption_wh_per_km > 0
+            AND consumption_wh_per_km < 'Infinity'::DOUBLE PRECISION
+        ),
+
+    max_slope_percent DOUBLE PRECISION
+        CHECK (
+            max_slope_percent IS NULL
+            OR (
+                max_slope_percent >= 0
+                AND max_slope_percent < 'Infinity'::DOUBLE PRECISION
+            )
+        ),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX robots_name_unique
+    ON robots (LOWER(name));
+
+COMMIT;
