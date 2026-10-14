@@ -64,3 +64,9 @@ jobs:
 
       - name: Comprobar tipos
         run: npm run typecheck
+        
+      - name: Comprobar tipos
+        run: npm run typecheck
+
+      - name: Ejecutar pruebas de la API
+        run: npm test
