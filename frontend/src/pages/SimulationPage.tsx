@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -15,6 +15,56 @@ type RouteResponse = {
   distanceMeters: number
   durationSeconds: number
   profile: string
+}
+
+type Point = {
+  lat: number
+  lng: number
+}
+
+type DeliveryDraft = {
+  robot: {
+    id: string
+    name: string
+  }
+  origin: Point
+  destination: Point
+}
+
+function isPoint(value: unknown): value is Point {
+  if (!value || typeof value !== 'object') return false
+
+  const point = value as Record<string, unknown>
+
+  return (
+    typeof point.lat === 'number' &&
+    Number.isFinite(point.lat) &&
+    point.lat >= -90 &&
+    point.lat <= 90 &&
+    typeof point.lng === 'number' &&
+    Number.isFinite(point.lng) &&
+    point.lng >= -180 &&
+    point.lng <= 180
+  )
+}
+
+function isDeliveryDraft(value: unknown): value is DeliveryDraft {
+  if (!value || typeof value !== 'object') return false
+
+  const draft = value as Record<string, unknown>
+
+  if (!draft.robot || typeof draft.robot !== 'object') return false
+
+  const robot = draft.robot as Record<string, unknown>
+
+  return (
+    typeof robot.id === 'string' &&
+    robot.id.trim().length > 0 &&
+    typeof robot.name === 'string' &&
+    robot.name.trim().length > 0 &&
+    isPoint(draft.origin) &&
+    isPoint(draft.destination)
+  )
 }
 
 function isRouteResponse(value: unknown): value is RouteResponse {
@@ -59,17 +109,81 @@ function SimulationPage() {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const navigationState: unknown = location.state
-
-  const receivedRoute =
-    navigationState &&
-    typeof navigationState === 'object' &&
-    'route' in navigationState
-      ? navigationState.route
-      : null
-
-  const route = isRouteResponse(receivedRoute)
-    ? receivedRoute
+  const draft = isDeliveryDraft(navigationState)
+    ? navigationState
     : null
+
+  const [route, setRoute] = useState<RouteResponse | null>(null)
+  const [error, setError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
+
+  useEffect(() => {
+    if (!draft) return
+
+    const { origin, destination } = draft
+    const controller = new AbortController()
+
+    async function loadRoute() {
+      setRoute(null)
+      setError('')
+
+      try {
+        const response = await fetch('/api/routes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ origin, destination }),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(25000),
+          ]),
+        })
+
+        const body: unknown = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          const message =
+            body &&
+            typeof body === 'object' &&
+            'message' in body &&
+            typeof body.message === 'string'
+              ? body.message
+              : 'No se pudo calcular la ruta.'
+
+          throw new Error(message)
+        }
+
+        if (!isRouteResponse(body)) {
+          throw new Error('El servidor devolvió una ruta inválida.')
+        }
+
+        if (!controller.signal.aborted) {
+          setRoute(body)
+        }
+      } catch (caught) {
+        if (controller.signal.aborted) return
+
+        if (caught instanceof Error && caught.name === 'TimeoutError') {
+          setError('El cálculo tardó demasiado. Intentá nuevamente.')
+        } else if (caught instanceof TypeError) {
+          setError('No se pudo conectar con el backend.')
+        } else {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Ocurrió un error al calcular la ruta.',
+          )
+        }
+      }
+    }
+
+    void loadRoute()
+
+    return () => {
+      controller.abort()
+    }
+  }, [draft, retryKey])
 
   useEffect(() => {
     if (!containerRef.current || !route) return
@@ -132,6 +246,11 @@ function SimulationPage() {
     }
   }, [route])
 
+  function retryCalculation() {
+    setError('')
+    setRetryKey((current) => current + 1)
+  }
+
   return (
     <div className="demo-page simulation-page">
       <header className="demo-header">
@@ -165,14 +284,45 @@ function SimulationPage() {
       </header>
 
       <main className="simulation-workspace">
-        {!route ? (
+        {!draft ? (
           <section className="simulation-empty">
-            <h1>Primero prepará un recorrido</h1>
+            <h1>Primero prepará una entrega</h1>
             <p>
-              Seleccioná el origen y el destino en la demo y calculá
-              una ruta para abrir su seguimiento.
+              Seleccioná un robot, el origen y el destino para
+              continuar a la simulación.
             </p>
             <Link to="/demo">Ir a preparar entrega →</Link>
+          </section>
+        ) : !route ? (
+          <section
+            className="simulation-empty"
+            aria-busy={!error}
+          >
+            <h1>
+              {error
+                ? 'No pudimos preparar la ruta'
+                : 'Preparando recorrido'}
+            </h1>
+
+            {error ? (
+              <>
+                <p role="alert">{error}</p>
+                <button
+                  className="simulation-retry"
+                  type="button"
+                  onClick={retryCalculation}
+                >
+                  Reintentar cálculo
+                </button>
+              </>
+            ) : (
+              <p role="status">
+                Calculando la ruta entre los puntos seleccionados
+                para {draft.robot.name}…
+              </p>
+            )}
+
+            <Link to="/demo">Volver a preparar entrega →</Link>
           </section>
         ) : (
           <>
@@ -182,11 +332,14 @@ function SimulationPage() {
                   SEGUIMIENTO DE ENTREGA
                 </p>
                 <h1>El recorrido y sus decisiones</h1>
-                <p>Área de prueba: Washington D. C.</p>
+                <p>
+                  Robot: <strong>{draft.robot.name}</strong>
+                  {' · '}Washington D. C.
+                </p>
               </div>
 
-              <span className="simulation-state">
-                Ruta recibida
+              <span className="simulation-state" role="status">
+                Ruta calculada
               </span>
             </div>
 
@@ -309,15 +462,15 @@ function SimulationPage() {
                   </p>
                   <h2>Evaluación pendiente</h2>
                   <p>
-                    La ruta está calculada. Falta asociar el robot
-                    y evaluar las condiciones del entorno antes de
-                    determinar su aptitud.
+                    El robot está seleccionado y la ruta está calculada.
+                    Falta evaluar la energía disponible y las condiciones
+                    del entorno para determinar su aptitud.
                   </p>
 
                   <dl className="simulation-checks">
                     <div>
                       <dt>Robot</dt>
-                      <dd>Sin asociar</dd>
+                      <dd>{draft.robot.name}</dd>
                     </div>
                     <div>
                       <dt>Energía disponible</dt>
@@ -338,8 +491,11 @@ function SimulationPage() {
                   <h2>Actividad del sistema</h2>
                   <ol className="simulation-activity">
                     <li>
-                      Se recibió el recorrido calculado desde la
-                      preparación de la entrega.
+                      Se recibió el robot {draft.robot.name} junto
+                      con el origen y el destino seleccionados.
+                    </li>
+                    <li>
+                      Se calculó la ruta peatonal de referencia.
                     </li>
                   </ol>
                 </section>
