@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { routeIntersectsBlockedAreas } from './route-geometry';
 
 export const pointSchema = z.object({
     lat: z.number().finite().min(-90).max(90),
@@ -171,6 +172,17 @@ export async function calculateRoute(
             throw new RoutingError(
                 422,
                 'No se encontró una ruta entre esos puntos.',
+            );
+        }
+        if (
+            routeIntersectsBlockedAreas(
+                route.geometry.coordinates,
+                blockedAreas ?? [],
+            )
+        ) {
+            throw new RoutingError(
+                422,
+                'La ruta propuesta atraviesa una zona bloqueada. No se aplicó el desvío.',
             );
         }
 

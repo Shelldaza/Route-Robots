@@ -21,6 +21,13 @@ const input = {
     },
 };
 
+const blockedArea = {
+    south: 38.908,
+    west: -77.035,
+    north: 38.909,
+    east: -77.034,
+};
+
 const providerResponse = {
     features: [
         {
@@ -35,6 +42,27 @@ const providerResponse = {
                 summary: {
                     distance: 850,
                     duration: 620,
+                },
+            },
+        },
+    ],
+};
+
+const detourResponse = {
+    features: [
+        {
+            geometry: {
+                type: 'LineString',
+                coordinates: [
+                    [-77.0369, 38.9072],
+                    [-77.0369, 38.91],
+                    [-77.03, 38.91],
+                ],
+            },
+            properties: {
+                summary: {
+                    distance: 1100,
+                    duration: 800,
                 },
             },
         },
@@ -82,23 +110,23 @@ describe('Servicio de rutas', () => {
         expect(sentBody).not.toHaveProperty('options');
     });
 
-    it('envía la zona bloqueada como un polígono cerrado', async () => {
+    it('envía la zona bloqueada como un polígono cerrado y acepta un desvío válido', async () => {
         fetchMock.mockResolvedValueOnce(
-            new Response(JSON.stringify(providerResponse), {
+            new Response(JSON.stringify(detourResponse), {
                 status: 200,
             }),
         );
 
-        await calculateRoute({
+        const route = await calculateRoute({
             ...input,
-            blockedAreas: [
-                {
-                    south: 38.908,
-                    west: -77.035,
-                    north: 38.909,
-                    east: -77.034,
-                },
-            ],
+            blockedAreas: [blockedArea],
+        });
+
+        expect(route).toEqual({
+            geometry: detourResponse.features[0]!.geometry,
+            distanceMeters: 1100,
+            durationSeconds: 800,
+            profile: 'foot-walking',
         });
 
         const options = fetchMock.mock.calls[0]![1] as RequestInit;
@@ -117,6 +145,52 @@ describe('Servicio de rutas', () => {
                     ],
                 ],
             ],
+        });
+    });
+
+    it('rechaza una alternativa que todavía cruza el bloqueo', async () => {
+        const crossingResponse = {
+            features: [
+                {
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [
+                            [-77.036, 38.9085],
+                            [-77.033, 38.9085],
+                        ],
+                    },
+                    properties: {
+                        summary: {
+                            distance: 300,
+                            duration: 200,
+                        },
+                    },
+                },
+            ],
+        };
+
+        fetchMock.mockResolvedValueOnce(
+            new Response(JSON.stringify(crossingResponse), {
+                status: 200,
+            }),
+        );
+
+        await expect(
+            calculateRoute({
+                origin: {
+                    lat: 38.9085,
+                    lng: -77.036,
+                },
+                destination: {
+                    lat: 38.9085,
+                    lng: -77.033,
+                },
+                blockedAreas: [blockedArea],
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 422,
+            message:
+                'La ruta propuesta atraviesa una zona bloqueada. No se aplicó el desvío.',
         });
     });
 
