@@ -1,33 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './DemoPage.css'
 import RobotSetupSection from '../components/RobotSetupSection'
 import type { Robot } from '../components/RobotSetupSection'
-import { Link } from 'react-router'
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
 
-type RouteResponse = {
-  geometry: {
-    type: 'LineString'
-    coordinates: [number, number][]
-  }
-  distanceMeters: number
-  durationSeconds: number
-  profile: string
-}
-
 function DemoPage() {
+  const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<L.Map | null>(null)
   const markersRef = useRef<L.LayerGroup | null>(null)
-  const routeLayerRef = useRef<L.LayerGroup | null>(null)
 
   const [points, setPoints] = useState<L.LatLngLiteral[]>([])
-  const [route, setRoute] = useState<RouteResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null)
 
   useEffect(() => {
@@ -44,9 +30,7 @@ function DemoPage() {
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map)
 
-    mapRef.current = map
     markersRef.current = L.layerGroup().addTo(map)
-    routeLayerRef.current = L.layerGroup().addTo(map)
 
     map.on('click', (event: L.LeafletMouseEvent) => {
       const point = {
@@ -61,9 +45,7 @@ function DemoPage() {
 
     return () => {
       map.remove()
-      mapRef.current = null
       markersRef.current = null
-      routeLayerRef.current = null
     }
   }, [])
 
@@ -92,107 +74,29 @@ function DemoPage() {
     })
   }, [points])
 
-  useEffect(() => {
-    const map = mapRef.current
-    const routeLayer = routeLayerRef.current
-
-    if (!map || !routeLayer) return
-
-    routeLayer.clearLayers()
-
-    if (!route) return
-
-    // La API devuelve [longitud, latitud].
-    // Leaflet necesita [latitud, longitud].
-    const coordinates: L.LatLngTuple[] =
-      route.geometry.coordinates.map(([lng, lat]) => [lat, lng])
-
-    const line = L.polyline(coordinates, {
-      color: '#0f766e',
-      weight: 6,
-      opacity: 0.9,
-    }).addTo(routeLayer)
-
-    map.fitBounds(line.getBounds(), {
-      padding: [35, 35],
-      maxZoom: 17,
-    })
-  }, [route])
-
-  async function calculateRoute() {
+  function continueToSimulation() {
     const origin = points[0]
     const destination = points[1]
 
-    if (!origin || !destination || loading) return
+    if (!selectedRobot || !origin || !destination) return
 
-    setLoading(true)
-    setError('')
-    setRoute(null)
-
-    try {
-      const response = await fetch('/api/routes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ origin, destination }),
-        signal: AbortSignal.timeout(25000),
-      })
-
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          message?: string
-        } | null
-
-        throw new Error(
-          body?.message ?? 'No se pudo calcular la ruta.',
-        )
-      }
-
-      const data = (await response.json()) as RouteResponse
-
-      if (
-        data.geometry?.type !== 'LineString' ||
-        !Array.isArray(data.geometry.coordinates) ||
-        data.geometry.coordinates.length < 2 ||
-        !Number.isFinite(data.distanceMeters) ||
-        !Number.isFinite(data.durationSeconds)
-      ) {
-        throw new Error('El servidor devolvió una ruta inválida.')
-      }
-
-      setRoute(data)
-    } catch (caught) {
-      if (caught instanceof Error && caught.name === 'TimeoutError') {
-        setError('El cálculo tardó demasiado. Intentá nuevamente.')
-      } else if (caught instanceof TypeError) {
-        setError(
-          'No se pudo conectar con el backend. Verificá que esté ejecutándose.',
-        )
-      } else {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : 'Ocurrió un error al calcular la ruta.',
-        )
-      }
-    } finally {
-      setLoading(false)
-    }
+    navigate('/simulacion', {
+      state: {
+        robot: selectedRobot,
+        origin,
+        destination,
+      },
+    })
   }
 
-  function resetSelection() {
-    setPoints([])
-    setRoute(null)
-    setError('')
-  }
+  const canContinue = selectedRobot !== null && points.length === 2
 
   const instruction =
     points.length === 0
       ? 'Hacé clic en el mapa para elegir el origen.'
       : points.length === 1
         ? 'Ahora elegí el destino con otro clic.'
-        : 'Origen y destino seleccionados. Podés calcular la ruta.'
+        : 'Origen y destino seleccionados.'
 
   return (
     <div className="demo-page">
@@ -233,100 +137,93 @@ function DemoPage() {
         <div className="demo-heading">
           <h1>Preparar entrega</h1>
           <p>
-            Configurá el robot y elegí el recorrido en Washington D. C.
+            Configurá el robot y elegí los puntos de salida y llegada
+            en Washington D. C.
           </p>
         </div>
 
         <RobotSetupSection onRobotSelected={setSelectedRobot} />
 
         {selectedRobot && (
-            <p className="demo-robot-summary" role="status">
-              Robot seleccionado: <strong>{selectedRobot.name}</strong>
-            </p>
-          )}
-      <div className="layout">
-        <aside className="panel">
-          <h2>Seleccionar recorrido</h2>
-          <p role="status">{instruction}</p>
-
-          {['Origen', 'Destino'].map((label, index) => {
-            const point = points[index]
-
-            return (
-              <div className="point" key={label}>
-                <strong>{label}</strong>
-                <span>
-                  {point
-                    ? `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
-                    : 'Sin seleccionar'}
-                </span>
-              </div>
-            )
-          })}
-
-          <button
-            type="button"
-            onClick={calculateRoute}
-            disabled={points.length !== 2 || loading}
-          >
-            {loading ? 'Calculando…' : 'Calcular ruta'}
-          </button>
-
-          <button
-            type="button"
-            className="secondary"
-            onClick={resetSelection}
-            disabled={points.length === 0 || loading}
-          >
-            Reiniciar selección
-          </button>
-
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-
-          {route && (
-            <div className="route-result" role="status">
-              <h3>Ruta calculada</h3>
-              <p>
-                <strong>Distancia:</strong>{' '}
-                {route.distanceMeters.toLocaleString('es-AR', {
-                  maximumFractionDigits: 1,
-                })}{' '}
-                metros
-              </p>
-              <p>
-                <strong>Tiempo peatonal de referencia:</strong>{' '}
-                {(route.durationSeconds / 60).toLocaleString('es-AR', {
-                  maximumFractionDigits: 1,
-                })}{' '}
-                minutos
-              </p>
-              <Link
-                  className="simulation-link"
-                  to="/simulacion"
-                  state={{ route }}
-                  >
-                  Ver seguimiento de la entrega →
-              </Link>
-            </div>
-          )}
-
-          <p className="note">
-            Seleccioná dos puntos sobre calles o caminos cercanos.
-            Por ahora usamos rutas peatonales como base del prototipo.
+          <p className="demo-robot-summary" role="status">
+            Robot seleccionado: <strong>{selectedRobot.name}</strong>
           </p>
-        </aside>
+        )}
 
-        <div
-          className="map"
-          ref={containerRef}
-          aria-label="Mapa para seleccionar origen y destino"
-        />
-      </div>
-    </main>
+        <section
+          className="route-setup"
+          aria-labelledby="route-setup-title"
+        >
+          <div className="route-setup-heading">
+            <p className="route-setup-step">PASO 2: RECORRIDO</p>
+            <h2 id="route-setup-title">Elegí el origen y el destino</h2>
+            <p>
+              Marcá los dos puntos en el mapa. La ruta se calculará
+              al continuar a la simulación.
+            </p>
+          </div>
+
+          <div className="layout">
+            <aside className="panel" aria-label="Puntos del recorrido">
+              <p role="status">{instruction}</p>
+
+              {['Origen', 'Destino'].map((label, index) => {
+                const point = points[index]
+
+                return (
+                  <div className="point" key={label}>
+                    <strong>{label}</strong>
+                    <span>
+                      {point
+                        ? `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
+                        : 'Sin seleccionar'}
+                    </span>
+                  </div>
+                )
+              })}
+
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setPoints([])}
+                disabled={points.length === 0}
+              >
+                Reiniciar selección
+              </button>
+
+              <p className="note">
+                Seleccioná puntos sobre calles o caminos cercanos.
+                Usamos rutas peatonales como base del prototipo.
+              </p>
+            </aside>
+
+            <div
+              className="map"
+              ref={containerRef}
+              aria-label="Mapa para seleccionar origen y destino"
+            />
+          </div>
+
+          <div className="route-setup-footer">
+            <p id="simulation-requirements" role="status">
+              {!selectedRobot
+                ? 'Seleccioná un robot en el paso 1 para continuar.'
+                : points.length !== 2
+                  ? 'Seleccioná el origen y el destino para continuar.'
+                  : `Todo listo para preparar el recorrido de ${selectedRobot.name}.`}
+            </p>
+
+            <button
+              type="button"
+              onClick={continueToSimulation}
+              disabled={!canContinue}
+              aria-describedby="simulation-requirements"
+            >
+              Continuar a simulación →
+            </button>
+          </div>
+        </section>
+      </main>
     </div>
   )
 }

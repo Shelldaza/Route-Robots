@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
+import SimulationIncidentSection from '../components/SimulationIncidentSection'
+import type { BlockedArea } from '../components/SimulationIncidentSection'
 import './DemoPage.css'
 import './SimulationPage.css'
+import blockageIconUrl from '../assets/incidents/blockage.png'
 
 type RouteResponse = {
   geometry: {
@@ -15,6 +18,56 @@ type RouteResponse = {
   distanceMeters: number
   durationSeconds: number
   profile: string
+}
+
+type Point = {
+  lat: number
+  lng: number
+}
+
+type DeliveryDraft = {
+  robot: {
+    id: string
+    name: string
+  }
+  origin: Point
+  destination: Point
+}
+
+function isPoint(value: unknown): value is Point {
+  if (!value || typeof value !== 'object') return false
+
+  const point = value as Record<string, unknown>
+
+  return (
+    typeof point.lat === 'number' &&
+    Number.isFinite(point.lat) &&
+    point.lat >= -90 &&
+    point.lat <= 90 &&
+    typeof point.lng === 'number' &&
+    Number.isFinite(point.lng) &&
+    point.lng >= -180 &&
+    point.lng <= 180
+  )
+}
+
+function isDeliveryDraft(value: unknown): value is DeliveryDraft {
+  if (!value || typeof value !== 'object') return false
+
+  const draft = value as Record<string, unknown>
+
+  if (!draft.robot || typeof draft.robot !== 'object') return false
+
+  const robot = draft.robot as Record<string, unknown>
+
+  return (
+    typeof robot.id === 'string' &&
+    robot.id.trim().length > 0 &&
+    typeof robot.name === 'string' &&
+    robot.name.trim().length > 0 &&
+    isPoint(draft.origin) &&
+    isPoint(draft.destination)
+  )
 }
 
 function isRouteResponse(value: unknown): value is RouteResponse {
@@ -57,19 +110,88 @@ function isRouteResponse(value: unknown): value is RouteResponse {
 function SimulationPage() {
   const location = useLocation()
   const containerRef = useRef<HTMLDivElement>(null)
+  const blockedLayerRef = useRef<L.LayerGroup | null>(null)
 
   const navigationState: unknown = location.state
-
-  const receivedRoute =
-    navigationState &&
-    typeof navigationState === 'object' &&
-    'route' in navigationState
-      ? navigationState.route
-      : null
-
-  const route = isRouteResponse(receivedRoute)
-    ? receivedRoute
+  const draft = isDeliveryDraft(navigationState)
+    ? navigationState
     : null
+
+  const [simulationId] = useState(() => crypto.randomUUID())
+  const [route, setRoute] = useState<RouteResponse | null>(null)
+  const [blockedAreas, setBlockedAreas] = useState<BlockedArea[]>([])
+  const [error, setError] = useState('')
+  const [retryKey, setRetryKey] = useState(0)
+
+  const hasBlockages = blockedAreas.length > 0
+
+  useEffect(() => {
+    if (!draft) return
+
+    const { origin, destination } = draft
+    const controller = new AbortController()
+
+    async function loadRoute() {
+      setRoute(null)
+      setError('')
+
+      try {
+        const response = await fetch('/api/routes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ origin, destination }),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(25000),
+          ]),
+        })
+
+        const body: unknown = await response.json().catch(() => null)
+
+        if (!response.ok) {
+          const message =
+            body &&
+            typeof body === 'object' &&
+            'message' in body &&
+            typeof body.message === 'string'
+              ? body.message
+              : 'No se pudo calcular la ruta.'
+
+          throw new Error(message)
+        }
+
+        if (!isRouteResponse(body)) {
+          throw new Error('El servidor devolvió una ruta inválida.')
+        }
+
+        if (!controller.signal.aborted) {
+          setRoute(body)
+        }
+      } catch (caught) {
+        if (controller.signal.aborted) return
+
+        if (caught instanceof Error && caught.name === 'TimeoutError') {
+          setError('El cálculo tardó demasiado. Intentá nuevamente.')
+        } else if (caught instanceof TypeError) {
+          setError('No se pudo conectar con el backend.')
+        } else {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : 'Ocurrió un error al calcular la ruta.',
+          )
+        }
+      }
+    }
+
+    void loadRoute()
+
+    return () => {
+      controller.abort()
+    }
+  }, [draft, retryKey])
 
   useEffect(() => {
     if (!containerRef.current || !route) return
@@ -122,15 +244,58 @@ function SimulationPage() {
       })
       .addTo(map)
 
+    blockedLayerRef.current = L.layerGroup().addTo(map)
+
     map.fitBounds(line.getBounds(), {
       padding: [40, 40],
       maxZoom: 17,
     })
 
     return () => {
+      blockedLayerRef.current = null
       map.remove()
     }
   }, [route])
+
+  useEffect(() => {
+    const layer = blockedLayerRef.current
+
+    if (!layer) return
+
+    layer.clearLayers()
+
+    const blockageIcon = L.icon({
+      iconUrl: blockageIconUrl,
+      iconSize: [52, 52],
+      iconAnchor: [26, 26],
+      tooltipAnchor: [0, -26],
+      className: 'simulation-blockage-icon',
+    })
+
+    blockedAreas.forEach((area) => {
+      const center: L.LatLngTuple = [
+        (area.south + area.north) / 2,
+        (area.west + area.east) / 2,
+      ]
+
+      L.marker(center, {
+        icon: blockageIcon,
+        alt: 'Paso bloqueado',
+        title: 'Bloqueo simulado',
+        keyboard: true,
+        riseOnHover: true,
+      })
+        .bindTooltip('Paso bloqueado — incidente simulado', {
+          direction: 'top',
+        })
+        .addTo(layer)
+    })
+  }, [route, blockedAreas])
+
+  function retryCalculation() {
+    setError('')
+    setRetryKey((current) => current + 1)
+  }
 
   return (
     <div className="demo-page simulation-page">
@@ -165,14 +330,45 @@ function SimulationPage() {
       </header>
 
       <main className="simulation-workspace">
-        {!route ? (
+        {!draft ? (
           <section className="simulation-empty">
-            <h1>Primero prepará un recorrido</h1>
+            <h1>Primero prepará una entrega</h1>
             <p>
-              Seleccioná el origen y el destino en la demo y calculá
-              una ruta para abrir su seguimiento.
+              Seleccioná un robot, el origen y el destino para
+              continuar a la simulación.
             </p>
             <Link to="/demo">Ir a preparar entrega →</Link>
+          </section>
+        ) : !route ? (
+          <section
+            className="simulation-empty"
+            aria-busy={!error}
+          >
+            <h1>
+              {error
+                ? 'No pudimos preparar la ruta'
+                : 'Preparando recorrido'}
+            </h1>
+
+            {error ? (
+              <>
+                <p role="alert">{error}</p>
+                <button
+                  className="simulation-retry"
+                  type="button"
+                  onClick={retryCalculation}
+                >
+                  Reintentar cálculo
+                </button>
+              </>
+            ) : (
+              <p role="status">
+                Calculando la ruta entre los puntos seleccionados
+                para {draft.robot.name}…
+              </p>
+            )}
+
+            <Link to="/demo">Volver a preparar entrega →</Link>
           </section>
         ) : (
           <>
@@ -182,11 +378,16 @@ function SimulationPage() {
                   SEGUIMIENTO DE ENTREGA
                 </p>
                 <h1>El recorrido y sus decisiones</h1>
-                <p>Área de prueba: Washington D. C.</p>
+                <p>
+                  Robot: <strong>{draft.robot.name}</strong>
+                  {' · '}Washington D. C.
+                </p>
               </div>
 
-              <span className="simulation-state">
-                Ruta recibida
+              <span className="simulation-state" role="status">
+                {hasBlockages
+                  ? 'Bloqueo pendiente de resolución'
+                  : 'Ruta calculada'}
               </span>
             </div>
 
@@ -225,8 +426,9 @@ function SimulationPage() {
             </div>
 
             <p className="simulation-notice">
-              El recorrido proviene del backend. El movimiento y la
-              gestión de eventos todavía no están disponibles.
+              Podés registrar un bloqueo de prueba y visualizarlo
+              sobre el recorrido original. El movimiento y la
+              resolución automática todavía no están habilitados.
             </p>
 
             <div className="simulation-grid">
@@ -236,15 +438,19 @@ function SimulationPage() {
               >
                 <div className="simulation-panel-heading">
                   <h2 id="simulation-route-title">
-                    Recorrido calculado
+                    Recorrido original
                   </h2>
-                  <span>Sin iniciar</span>
+                  <span>
+                    {hasBlockages
+                      ? 'Requiere evaluar un desvío'
+                      : 'Sin iniciar'}
+                  </span>
                 </div>
 
                 <div
                   className="simulation-map"
                   ref={containerRef}
-                  aria-label="Mapa del recorrido calculado"
+                  aria-label="Mapa del recorrido y los bloqueos simulados"
                 />
 
                 <div
@@ -255,6 +461,7 @@ function SimulationPage() {
                     <i className="legend-origin" aria-hidden="true" />
                     Origen
                   </span>
+
                   <span>
                     <i
                       className="legend-destination"
@@ -262,15 +469,27 @@ function SimulationPage() {
                     />
                     Destino
                   </span>
+
                   <span>
                     <i className="legend-route" aria-hidden="true" />
-                    Ruta calculada
+                    Ruta original
                   </span>
+
+                  {hasBlockages && (
+                    <span>
+                      <img
+                        className="legend-blockage-image"
+                        src={blockageIconUrl}
+                        alt=""
+                      />
+                      Bloqueo simulado
+                    </span>
+                  )}
                 </div>
 
                 <dl className="simulation-metrics">
                   <div>
-                    <dt>Distancia</dt>
+                    <dt>Distancia original</dt>
                     <dd>
                       {route.distanceMeters.toLocaleString('es-AR', {
                         maximumFractionDigits: 1,
@@ -296,7 +515,7 @@ function SimulationPage() {
                   </div>
 
                   <div>
-                    <dt>Batería al llegar</dt>
+                    <dt>Capacidad de batería requerida</dt>
                     <dd>—</dd>
                   </div>
                 </dl>
@@ -307,52 +526,75 @@ function SimulationPage() {
                   <p className="simulation-eyebrow">
                     EVALUACIÓN DEL RECORRIDO
                   </p>
-                  <h2>Evaluación pendiente</h2>
+
+                  <h2>
+                    {hasBlockages
+                      ? 'Desvío pendiente'
+                      : 'Evaluación pendiente'}
+                  </h2>
+
                   <p>
-                    La ruta está calculada. Falta asociar el robot
-                    y evaluar las condiciones del entorno antes de
-                    determinar su aptitud.
+                    {hasBlockages
+                      ? 'Se registró un bloqueo sobre el recorrido original. Falta solicitar y validar una ruta alternativa.'
+                      : 'El robot está seleccionado y la ruta está calculada. Las estimaciones de consumo y la evaluación del entorno se incorporarán en los próximos avances.'}
                   </p>
 
                   <dl className="simulation-checks">
                     <div>
                       <dt>Robot</dt>
-                      <dd>Sin asociar</dd>
+                      <dd>{draft.robot.name}</dd>
                     </div>
+
                     <div>
-                      <dt>Energía disponible</dt>
-                      <dd>Sin evaluar</dd>
+                      <dt>Consumo del recorrido</dt>
+                      <dd>Sin estimar</dd>
                     </div>
+
                     <div>
                       <dt>Pendientes</dt>
                       <dd>Sin verificar</dd>
                     </div>
+
                     <div>
                       <dt>Incidentes</dt>
-                      <dd>Sin consultar</dd>
+                      <dd>
+                        {hasBlockages
+                          ? `${blockedAreas.length} bloqueo registrado`
+                          : 'Sin bloqueos registrados'}
+                      </dd>
                     </div>
                   </dl>
                 </section>
 
                 <section className="simulation-card">
                   <h2>Actividad del sistema</h2>
+
                   <ol className="simulation-activity">
                     <li>
-                      Se recibió el recorrido calculado desde la
-                      preparación de la entrega.
+                      Se recibió el robot {draft.robot.name} junto
+                      con el origen y el destino seleccionados.
                     </li>
+
+                    <li>
+                      Se calculó la ruta peatonal de referencia.
+                    </li>
+
+                    {hasBlockages && (
+                      <li>
+                        Se registró un bloqueo simulado y se marcó
+                        su ubicación sobre el mapa.
+                      </li>
+                    )}
                   </ol>
                 </section>
               </aside>
             </div>
 
-            <section className="simulation-card simulation-incidents">
-              <h2>Incidentes del recorrido</h2>
-              <p>
-                Los reportes aparecerán aquí cuando conectemos la
-                consulta de incidentes y los eventos de los robots.
-              </p>
-            </section>
+            <SimulationIncidentSection
+              simulationId={simulationId}
+              coordinates={route.geometry.coordinates}
+              onBlockedAreasChange={setBlockedAreas}
+            />
           </>
         )}
       </main>

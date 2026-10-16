@@ -301,3 +301,136 @@
   outline: 3px solid #0066cc;
   outline-offset: 3px;
 }
+/* Paso 2: selección del recorrido */
+
+.demo-page .route-setup {
+  margin-block: 28px;
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid #dedede;
+  background: #fff;
+  color: #151515;
+  font-family: 'Red Hat Text', Arial, sans-serif;
+}
+
+.demo-page .route-setup-step {
+  margin: 0 0 12px;
+  color: #a30000;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.demo-page .route-setup-heading h2 {
+  margin: 0;
+  font-family: 'Red Hat Display', Arial, sans-serif;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.6px;
+}
+
+.demo-page .route-setup-heading h2 + p {
+  max-width: 650px;
+  margin: 12px 0 0;
+  color: #555;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.demo-page .route-setup .layout {
+  margin-top: 28px;
+}
+
+.demo-page .route-setup .panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.demo-page .route-setup .panel > p:first-child {
+  margin-top: 0;
+}
+
+.demo-page .route-setup .point {
+  border: 1px solid #dedede;
+  border-radius: 0;
+  background: #f5f5f5;
+}
+
+.demo-page .route-setup .point span,
+.demo-page .route-setup .note {
+  color: #555;
+}
+
+.demo-page .route-setup .map {
+  height: 480px;
+  border-color: #dedede;
+  border-radius: 0;
+}
+
+.demo-page .route-setup .panel button.secondary {
+  margin-top: 20px;
+  border: 1px solid #aaa;
+  border-radius: 0;
+  background: #fff;
+  color: #333;
+  font: inherit;
+  font-size: 14px;
+}
+
+.demo-page .route-setup-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #dedede;
+}
+
+.demo-page .route-setup-footer p {
+  margin: 0;
+  color: #555;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.demo-page .route-setup-footer button {
+  flex-shrink: 0;
+  min-height: 46px;
+  padding: 12px 20px;
+  border: 1px solid #c9190b;
+  border-radius: 0;
+  background: #c9190b;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.demo-page .route-setup button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.demo-page .route-setup-footer button:not(:disabled):hover {
+  border-color: #a30000;
+  background: #a30000;
+}
+
+.demo-page .route-setup button:focus-visible {
+  outline: 3px solid #0066cc;
+  outline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+  .demo-page .route-setup-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .demo-page .route-setup .map {
+    height: 360px;
+  }
+}
