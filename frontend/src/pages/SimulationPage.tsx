@@ -4,8 +4,11 @@ import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
+import SimulationIncidentSection from '../components/SimulationIncidentSection'
+import type { BlockedArea } from '../components/SimulationIncidentSection'
 import './DemoPage.css'
 import './SimulationPage.css'
+import blockageIconUrl from '../assets/incidents/blockage.png'
 
 type RouteResponse = {
   geometry: {
@@ -107,15 +110,20 @@ function isRouteResponse(value: unknown): value is RouteResponse {
 function SimulationPage() {
   const location = useLocation()
   const containerRef = useRef<HTMLDivElement>(null)
+  const blockedLayerRef = useRef<L.LayerGroup | null>(null)
 
   const navigationState: unknown = location.state
   const draft = isDeliveryDraft(navigationState)
     ? navigationState
     : null
 
+  const [simulationId] = useState(() => crypto.randomUUID())
   const [route, setRoute] = useState<RouteResponse | null>(null)
+  const [blockedAreas, setBlockedAreas] = useState<BlockedArea[]>([])
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
+
+  const hasBlockages = blockedAreas.length > 0
 
   useEffect(() => {
     if (!draft) return
@@ -236,15 +244,53 @@ function SimulationPage() {
       })
       .addTo(map)
 
+    blockedLayerRef.current = L.layerGroup().addTo(map)
+
     map.fitBounds(line.getBounds(), {
       padding: [40, 40],
       maxZoom: 17,
     })
 
     return () => {
+      blockedLayerRef.current = null
       map.remove()
     }
   }, [route])
+
+  useEffect(() => {
+    const layer = blockedLayerRef.current
+
+    if (!layer) return
+
+    layer.clearLayers()
+
+    const blockageIcon = L.icon({
+      iconUrl: blockageIconUrl,
+      iconSize: [52, 52],
+      iconAnchor: [26, 26],
+      tooltipAnchor: [0, -26],
+      className: 'simulation-blockage-icon',
+    })
+
+    blockedAreas.forEach((area) => {
+      const center: L.LatLngTuple = [
+        (area.south + area.north) / 2,
+        (area.west + area.east) / 2,
+      ]
+
+      L.marker(center, {
+        icon: blockageIcon,
+        alt: 'Paso bloqueado',
+        title: 'Bloqueo simulado',
+        keyboard: true,
+        riseOnHover: true,
+      })
+        .bindTooltip('Paso bloqueado — incidente simulado', {
+          direction: 'top',
+        })
+        .addTo(layer)
+    })
+  }, [route, blockedAreas])
 
   function retryCalculation() {
     setError('')
@@ -339,7 +385,9 @@ function SimulationPage() {
               </div>
 
               <span className="simulation-state" role="status">
-                Ruta calculada
+                {hasBlockages
+                  ? 'Bloqueo pendiente de resolución'
+                  : 'Ruta calculada'}
               </span>
             </div>
 
@@ -378,8 +426,9 @@ function SimulationPage() {
             </div>
 
             <p className="simulation-notice">
-              El recorrido proviene del backend. El movimiento y la
-              gestión de eventos todavía no están disponibles.
+              Podés registrar un bloqueo de prueba y visualizarlo
+              sobre el recorrido original. El movimiento y la
+              resolución automática todavía no están habilitados.
             </p>
 
             <div className="simulation-grid">
@@ -389,15 +438,19 @@ function SimulationPage() {
               >
                 <div className="simulation-panel-heading">
                   <h2 id="simulation-route-title">
-                    Recorrido calculado
+                    Recorrido original
                   </h2>
-                  <span>Sin iniciar</span>
+                  <span>
+                    {hasBlockages
+                      ? 'Requiere evaluar un desvío'
+                      : 'Sin iniciar'}
+                  </span>
                 </div>
 
                 <div
                   className="simulation-map"
                   ref={containerRef}
-                  aria-label="Mapa del recorrido calculado"
+                  aria-label="Mapa del recorrido y los bloqueos simulados"
                 />
 
                 <div
@@ -408,6 +461,7 @@ function SimulationPage() {
                     <i className="legend-origin" aria-hidden="true" />
                     Origen
                   </span>
+
                   <span>
                     <i
                       className="legend-destination"
@@ -415,15 +469,27 @@ function SimulationPage() {
                     />
                     Destino
                   </span>
+
                   <span>
                     <i className="legend-route" aria-hidden="true" />
-                    Ruta calculada
+                    Ruta original
                   </span>
+
+                  {hasBlockages && (
+                    <span>
+                      <img
+                        className="legend-blockage-image"
+                        src={blockageIconUrl}
+                        alt=""
+                      />
+                      Bloqueo simulado
+                    </span>
+                  )}
                 </div>
 
                 <dl className="simulation-metrics">
                   <div>
-                    <dt>Distancia</dt>
+                    <dt>Distancia original</dt>
                     <dd>
                       {route.distanceMeters.toLocaleString('es-AR', {
                         maximumFractionDigits: 1,
@@ -449,7 +515,7 @@ function SimulationPage() {
                   </div>
 
                   <div>
-                    <dt>Batería al llegar</dt>
+                    <dt>Capacidad de batería requerida</dt>
                     <dd>—</dd>
                   </div>
                 </dl>
@@ -460,11 +526,17 @@ function SimulationPage() {
                   <p className="simulation-eyebrow">
                     EVALUACIÓN DEL RECORRIDO
                   </p>
-                  <h2>Evaluación pendiente</h2>
+
+                  <h2>
+                    {hasBlockages
+                      ? 'Desvío pendiente'
+                      : 'Evaluación pendiente'}
+                  </h2>
+
                   <p>
-                    El robot está seleccionado y la ruta está calculada.
-                    Falta evaluar la energía disponible y las condiciones
-                    del entorno para determinar su aptitud.
+                    {hasBlockages
+                      ? 'Se registró un bloqueo sobre el recorrido original. Falta solicitar y validar una ruta alternativa.'
+                      : 'El robot está seleccionado y la ruta está calculada. Las estimaciones de consumo y la evaluación del entorno se incorporarán en los próximos avances.'}
                   </p>
 
                   <dl className="simulation-checks">
@@ -472,43 +544,57 @@ function SimulationPage() {
                       <dt>Robot</dt>
                       <dd>{draft.robot.name}</dd>
                     </div>
+
                     <div>
-                      <dt>Energía disponible</dt>
-                      <dd>Sin evaluar</dd>
+                      <dt>Consumo del recorrido</dt>
+                      <dd>Sin estimar</dd>
                     </div>
+
                     <div>
                       <dt>Pendientes</dt>
                       <dd>Sin verificar</dd>
                     </div>
+
                     <div>
                       <dt>Incidentes</dt>
-                      <dd>Sin consultar</dd>
+                      <dd>
+                        {hasBlockages
+                          ? `${blockedAreas.length} bloqueo registrado`
+                          : 'Sin bloqueos registrados'}
+                      </dd>
                     </div>
                   </dl>
                 </section>
 
                 <section className="simulation-card">
                   <h2>Actividad del sistema</h2>
+
                   <ol className="simulation-activity">
                     <li>
                       Se recibió el robot {draft.robot.name} junto
                       con el origen y el destino seleccionados.
                     </li>
+
                     <li>
                       Se calculó la ruta peatonal de referencia.
                     </li>
+
+                    {hasBlockages && (
+                      <li>
+                        Se registró un bloqueo simulado y se marcó
+                        su ubicación sobre el mapa.
+                      </li>
+                    )}
                   </ol>
                 </section>
               </aside>
             </div>
 
-            <section className="simulation-card simulation-incidents">
-              <h2>Incidentes del recorrido</h2>
-              <p>
-                Los reportes aparecerán aquí cuando conectemos la
-                consulta de incidentes y los eventos de los robots.
-              </p>
-            </section>
+            <SimulationIncidentSection
+              simulationId={simulationId}
+              coordinates={route.geometry.coordinates}
+              onBlockedAreasChange={setBlockedAreas}
+            />
           </>
         )}
       </main>
