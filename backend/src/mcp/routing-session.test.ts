@@ -32,6 +32,10 @@ const context = {
 const incident: Incident = {
     id: 'f88bbd1b-dc80-4339-b734-a82b717d51db',
     simulationId: context.simulationId,
+    description: 'Bloqueo de prueba.',
+    effect: 'blockage',
+    reporterName: 'RR-TEST',
+    startsAt: new Date('2026-10-17T12:00:00.000Z'),
     type: 'blockage',
     source: 'simulation',
     blockedArea: {
@@ -109,7 +113,10 @@ describe('Herramientas MCP de RouteRobots', () => {
 
             expect(
                 services.listActiveIncidents,
-            ).toHaveBeenCalledWith(context.simulationId);
+            ).toHaveBeenCalledWith(
+                context.simulationId,
+                expect.any(String),
+            );
         } finally {
             await session.close();
         }

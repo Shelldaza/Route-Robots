@@ -1,19 +1,30 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import {
     createIncident,
     createIncidentSchema,
-    listActiveIncidents,
+    listIncidents,
+    scenarioTimeSchema,
     simulationIdSchema,
 } from '../services/incidents';
 
 export const incidentsRouter = Router();
+
+const listIncidentsSchema = z.object({
+    simulationId: simulationIdSchema,
+    scenarioTime: scenarioTimeSchema.optional(),
+    includeHistory: z
+        .enum(['true', 'false'])
+        .optional(),
+});
 
 incidentsRouter.post('/', async (req, res) => {
     const input = createIncidentSchema.safeParse(req.body);
 
     if (!input.success) {
         res.status(400).json({
-            message: 'Enviá una simulación y una zona bloqueada válidas.',
+            message:
+                'Revisá la simulación, la ubicación y los datos del incidente.',
         });
         return;
     }
@@ -32,17 +43,29 @@ incidentsRouter.post('/', async (req, res) => {
 });
 
 incidentsRouter.get('/', async (req, res) => {
-    const input = simulationIdSchema.safeParse(req.query.simulationId);
+    const input = listIncidentsSchema.safeParse(req.query);
 
     if (!input.success) {
         res.status(400).json({
-            message: 'Indicá un identificador de simulación válido.',
+            message:
+                'Indicá una simulación, una fecha y opciones de consulta válidas.',
         });
         return;
     }
 
     try {
-        const incidents = await listActiveIncidents(input.data);
+        const incidents = await listIncidents(
+            input.data.simulationId,
+            {
+                includeHistory:
+                    input.data.includeHistory === 'true',
+                ...(input.data.scenarioTime !== undefined
+                    ? {
+                          scenarioTime: input.data.scenarioTime,
+                      }
+                    : {}),
+            },
+        );
 
         res.status(200).json(incidents);
     } catch {

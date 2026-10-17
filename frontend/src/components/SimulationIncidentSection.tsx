@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
 
 export type BlockedArea = {
@@ -8,24 +8,55 @@ export type BlockedArea = {
   east: number
 }
 
+type IncidentEffect =
+  | 'informational'
+  | 'caution'
+  | 'blockage'
+
 type Incident = {
   id: string
   simulationId: string
-  type: 'blockage'
-  source: 'simulation'
+  type: string
+  source: 'simulation' | 'manual' | 'ai_generated'
+  description: string
+  effect: IncidentEffect
+  reporterName: string | null
   blockedArea: BlockedArea
   createdAt: string
+  startsAt: string
   expiresAt: string
 }
 
 type Coordinate = [number, number]
 
+type ChangeOptions = {
+  requestReplanning: boolean
+}
+
 type Props = {
   simulationId: string
   coordinates: Coordinate[]
-  onBlockedAreasChange: (areas: BlockedArea[]) => void
+  scenarioTime: string
+  getScenarioTime: () => string
   onBeforeCreate?: () => void
   onCreatingChange?: (creating: boolean) => void
+  onBlockedAreasChange: (
+    areas: BlockedArea[],
+    options: ChangeOptions,
+  ) => void
+}
+
+const INCIDENT_LABELS: Record<string, string> = {
+  blockage: 'Bloqueo',
+  temporary_obstacle: 'Obstáculo temporal',
+  temporary_closure: 'Cierre temporal',
+  roadworks: 'Obras',
+  standing_water: 'Acumulación de agua',
+  crowd: 'Aglomeración de personas',
+  obstructing_vehicle: 'Vehículo obstruyendo el paso',
+  scheduled_event: 'Evento programado',
+  pothole: 'Bache',
+  uneven_surface: 'Superficie irregular',
 }
 
 function isBlockedArea(value: unknown): value is BlockedArea {
@@ -51,6 +82,13 @@ function isBlockedArea(value: unknown): value is BlockedArea {
   )
 }
 
+function isDateString(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    Number.isFinite(Date.parse(value))
+  )
+}
+
 function isIncident(value: unknown): value is Incident {
   if (!value || typeof value !== 'object') return false
 
@@ -58,16 +96,33 @@ function isIncident(value: unknown): value is Incident {
 
   return (
     typeof incident.id === 'string' &&
-    incident.id.trim().length > 0 &&
     typeof incident.simulationId === 'string' &&
-    incident.simulationId.trim().length > 0 &&
-    incident.type === 'blockage' &&
-    incident.source === 'simulation' &&
+    typeof incident.type === 'string' &&
+    Object.prototype.hasOwnProperty.call(
+      INCIDENT_LABELS,
+      incident.type,
+    ) &&
+    (
+      incident.source === 'simulation' ||
+      incident.source === 'manual' ||
+      incident.source === 'ai_generated'
+    ) &&
+    typeof incident.description === 'string' &&
+    (
+      incident.effect === 'informational' ||
+      incident.effect === 'caution' ||
+      incident.effect === 'blockage'
+    ) &&
+    (
+      incident.reporterName === null ||
+      typeof incident.reporterName === 'string'
+    ) &&
     isBlockedArea(incident.blockedArea) &&
-    typeof incident.createdAt === 'string' &&
-    Number.isFinite(Date.parse(incident.createdAt)) &&
-    typeof incident.expiresAt === 'string' &&
-    Number.isFinite(Date.parse(incident.expiresAt))
+    isDateString(incident.createdAt) &&
+    isDateString(incident.startsAt) &&
+    isDateString(incident.expiresAt) &&
+    Date.parse(incident.expiresAt) >
+      Date.parse(incident.startsAt)
   )
 }
 
@@ -87,6 +142,73 @@ async function readResponse(response: Response): Promise<unknown> {
   }
 
   return body
+}
+
+function validateIncidentList(
+  value: unknown,
+  simulationId: string,
+): Incident[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every(isIncident) ||
+    value.some(
+      (incident) =>
+        incident.simulationId !== simulationId,
+    )
+  ) {
+    throw new Error(
+      'El servidor devolvió incidentes inválidos.',
+    )
+  }
+
+  return value
+}
+
+async function fetchHistory(
+  simulationId: string,
+  scenarioTime: string,
+  signal: AbortSignal,
+): Promise<Incident[]> {
+  const query = new URLSearchParams({
+    simulationId,
+    scenarioTime,
+    includeHistory: 'true',
+  })
+
+  const response = await fetch(
+    `/api/incidents?${query.toString()}`,
+    { signal },
+  )
+
+  const body = await readResponse(response)
+
+  return validateIncidentList(body, simulationId)
+}
+
+function getIncidentStatus(
+  incident: Incident,
+  nowMs: number,
+): 'scheduled' | 'active' | 'finished' {
+  if (Date.parse(incident.startsAt) > nowMs) {
+    return 'scheduled'
+  }
+
+  if (Date.parse(incident.expiresAt) <= nowMs) {
+    return 'finished'
+  }
+
+  return 'active'
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }
 
 function createMiddleBlockage(
@@ -109,7 +231,7 @@ function createMiddleBlockage(
 
   if (totalDistance < 80) {
     throw new Error(
-      'Para generar este bloqueo deben quedar al menos 80 metros de recorrido.',
+      'Para esta prueba necesitás al menos 80 metros de recorrido pendiente.',
     )
   }
 
@@ -133,8 +255,10 @@ function createMiddleBlockage(
         (targetDistance - accumulated) / segmentDistance
 
       center = L.latLng(
-        previous.lat + (current.lat - previous.lat) * fraction,
-        previous.lng + (current.lng - previous.lng) * fraction,
+        previous.lat +
+          (current.lat - previous.lat) * fraction,
+        previous.lng +
+          (current.lng - previous.lng) * fraction,
       )
 
       break
@@ -145,15 +269,17 @@ function createMiddleBlockage(
 
   if (!center) {
     throw new Error(
-      'No se pudo ubicar el bloqueo sobre el recorrido pendiente.',
+      'No se pudo ubicar el bloqueo sobre el recorrido.',
     )
   }
 
-  // Zona de aproximadamente 20 × 20 metros.
-  // Aproximación local para la demo en Washington D. C.
+  // Área aproximada de 20 × 20 metros para Washington D. C.
   const halfHeight = 10 / 111320
   const halfWidth =
-    10 / (111320 * Math.cos((center.lat * Math.PI) / 180))
+    10 / (
+      111320 *
+      Math.cos((center.lat * Math.PI) / 180)
+    )
 
   const area: BlockedArea = {
     south: center.lat - halfHeight,
@@ -178,70 +304,190 @@ function createMiddleBlockage(
     contains(destination)
   ) {
     throw new Error(
-      'El bloqueo quedaría sobre la posición actual o el destino. Probá otro recorrido.',
+      'El bloqueo quedaría sobre el robot o el destino. Probá otro recorrido.',
     )
   }
 
   return area
 }
 
+function getErrorMessage(error: unknown): string {
+  if (
+    error instanceof Error &&
+    error.name === 'TimeoutError'
+  ) {
+    return 'La operación tardó demasiado. Reintentá para comprobar si el bloqueo se guardó.'
+  }
+
+  if (error instanceof TypeError) {
+    return 'No se pudo conectar con el backend.'
+  }
+
+  return error instanceof Error
+    ? error.message
+    : 'No se pudo completar la operación.'
+}
+
 function SimulationIncidentSection({
   simulationId,
   coordinates,
-  onBlockedAreasChange,
+  scenarioTime,
+  getScenarioTime,
   onBeforeCreate,
   onCreatingChange,
+  onBlockedAreasChange,
 }: Props) {
-  const [incident, setIncident] = useState<Incident | null>(null)
+  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+
   const pendingRef = useRef(false)
 
+  const changeCallbackRef = useRef(onBlockedAreasChange)
+  const previousBlockagesRef = useRef('[]')
+
+  useEffect(() => {
+    changeCallbackRef.current = onBlockedAreasChange
+  }, [onBlockedAreasChange])
+
+  // Descarga el historial al montar o al reintentar.
+  // No consulta la API en cada tick del reloj.
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadHistory() {
+      setLoading(true)
+      setError('')
+
+      try {
+        const history = await fetchHistory(
+          simulationId,
+          getScenarioTime(),
+          AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(40000),
+          ]),
+        )
+
+        if (!controller.signal.aborted) {
+          setIncidents(history)
+        }
+      } catch (caught) {
+        if (!controller.signal.aborted) {
+          setError(getErrorMessage(caught))
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    void loadHistory()
+
+    return () => controller.abort()
+  }, [simulationId, getScenarioTime, reloadKey])
+
+  const nowMs = Date.parse(scenarioTime)
+
+  const activeIncidents = incidents.filter(
+    (incident) =>
+      getIncidentStatus(incident, nowMs) === 'active',
+  )
+
+  const activeBlockages = activeIncidents.filter(
+    (incident) => incident.effect === 'blockage',
+  )
+
+  // Una clave estable evita notificar al padre en cada tick.
+  const blockagesKey = JSON.stringify(
+    activeBlockages
+      .map((incident) => ({
+        id: incident.id,
+        blockedArea: incident.blockedArea,
+      }))
+      .sort((first, second) =>
+        first.id.localeCompare(second.id),
+      ),
+  )
+
+  useEffect(() => {
+    const previousKey = previousBlockagesRef.current
+
+    if (previousKey === blockagesKey) return
+
+    type BlockageRecord = {
+      id: string
+      blockedArea: BlockedArea
+    }
+
+    const previous = JSON.parse(
+      previousKey,
+    ) as BlockageRecord[]
+
+    const current = JSON.parse(
+      blockagesKey,
+    ) as BlockageRecord[]
+
+    const previousRecords = new Set(
+      previous.map((record) => JSON.stringify(record)),
+    )
+
+    // Un bloqueo nuevo o un área modificada requiere evaluar.
+    // La desaparición de un bloqueo no solicita IA.
+    const requestReplanning = current.some(
+      (record) =>
+        !previousRecords.has(JSON.stringify(record)),
+    )
+
+    previousBlockagesRef.current = blockagesKey
+
+    changeCallbackRef.current(
+      current.map((record) => record.blockedArea),
+      { requestReplanning },
+    )
+  }, [blockagesKey])
+
   async function simulateBlockage() {
-    if (pendingRef.current || incident) return
+    if (
+      pendingRef.current ||
+      loading ||
+      activeBlockages.length > 0
+    ) {
+      return
+    }
 
     pendingRef.current = true
     setSaving(true)
     setError('')
 
     try {
-      // Pausa el robot y bloquea los controles antes de consultar
-      // o registrar el incidente.
       onBeforeCreate?.()
       onCreatingChange?.(true)
 
-      // Recupera un incidente si una solicitud anterior llegó
-      // a guardarlo, pero se perdió su respuesta.
-      const listResponse = await fetch(
-        `/api/incidents?simulationId=${encodeURIComponent(simulationId)}`,
-        {
-          signal: AbortSignal.timeout(40000),
-        },
+      // El padre ya pausó el escenario.
+      const startsAt = getScenarioTime()
+      const atMs = Date.parse(startsAt)
+
+      // Recupera un bloqueo activo si una respuesta anterior
+      // se perdió después de guardarlo.
+      const history = await fetchHistory(
+        simulationId,
+        startsAt,
+        AbortSignal.timeout(40000),
       )
 
-      const existing = await readResponse(listResponse)
+      setIncidents(history)
 
-      if (
-        !Array.isArray(existing) ||
-        !existing.every(isIncident) ||
-        existing.some(
-          (item) => item.simulationId !== simulationId,
-        )
-      ) {
-        throw new Error(
-          'El servidor devolvió incidentes inválidos.',
-        )
-      }
+      const existingBlockage = history.find(
+        (incident) =>
+          incident.effect === 'blockage' &&
+          getIncidentStatus(incident, atMs) === 'active',
+      )
 
-      const previous = existing[0]
-
-      if (previous) {
-        setIncident(previous)
-        onBlockedAreasChange(
-          existing.map((item) => item.blockedArea),
-        )
-        return
-      }
+      if (existingBlockage) return
 
       const blockedArea = createMiddleBlockage(coordinates)
 
@@ -253,6 +499,10 @@ function SimulationIncidentSection({
         body: JSON.stringify({
           simulationId,
           blockedArea,
+          type: 'blockage',
+          source: 'simulation',
+          startsAt,
+          durationMinutes: 15,
         }),
         signal: AbortSignal.timeout(40000),
       })
@@ -268,27 +518,14 @@ function SimulationIncidentSection({
         )
       }
 
-      setIncident(body)
-
-      // La pantalla inicia la replanificación mediante este callback.
-      onBlockedAreasChange([body.blockedArea])
+      setIncidents([
+        body,
+        ...history.filter(
+          (incident) => incident.id !== body.id,
+        ),
+      ])
     } catch (caught) {
-      if (
-        caught instanceof Error &&
-        caught.name === 'TimeoutError'
-      ) {
-        setError(
-          'La operación tardó demasiado. Reintentá para comprobar si el bloqueo se guardó.',
-        )
-      } else if (caught instanceof TypeError) {
-        setError('No se pudo conectar con el backend.')
-      } else {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : 'No se pudo crear el bloqueo.',
-        )
-      }
+      setError(getErrorMessage(caught))
     } finally {
       pendingRef.current = false
       setSaving(false)
@@ -296,54 +533,134 @@ function SimulationIncidentSection({
     }
   }
 
+  const finishedCount = incidents.filter(
+    (incident) =>
+      getIncidentStatus(incident, nowMs) === 'finished',
+  ).length
+
   return (
     <section className="simulation-card simulation-incidents">
-      <p className="simulation-eyebrow">ESCENARIO DE PRUEBA</p>
-      <h2>Incidentes del recorrido</h2>
+      <p className="simulation-eyebrow">
+        ESCENARIO DE PRUEBA
+      </p>
+
+      <h2>Incidentes del escenario</h2>
 
       <p>
-        Generá un bloqueo sobre la mitad del recorrido pendiente.
-        El robot se pausará, el incidente aparecerá en el mapa y
-        se solicitará una alternativa mediante IA.
+        Generá un bloqueo sobre la mitad del recorrido
+        pendiente. Durará 15 minutos del escenario y
+        activará la evaluación de una alternativa.
       </p>
 
       <button
         className="simulation-incident-button"
         type="button"
         onClick={() => void simulateBlockage()}
-        disabled={saving || incident !== null}
+        disabled={
+          loading ||
+          saving ||
+          activeBlockages.length > 0
+        }
       >
-        {saving
-          ? 'Registrando bloqueo…'
-          : incident
-            ? 'Bloqueo registrado'
-            : 'Simular bloqueo en el recorrido'}
+        {loading
+          ? 'Cargando incidentes…'
+          : saving
+            ? 'Registrando bloqueo…'
+            : activeBlockages.length > 0
+              ? 'Hay un bloqueo activo'
+              : 'Simular bloqueo en el recorrido'}
       </button>
 
       {error && (
-        <p className="simulation-incident-error" role="alert">
-          {error}
-        </p>
+        <>
+          <p
+            className="simulation-incident-error"
+            role="alert"
+          >
+            {error}
+          </p>
+
+          <button
+            className="simulation-retry"
+            type="button"
+            onClick={() =>
+              setReloadKey((current) => current + 1)
+            }
+            disabled={loading || saving}
+          >
+            Actualizar incidentes
+          </button>
+        </>
       )}
 
-      {incident && (
-        <div
-          className="simulation-incident-result"
-          role="status"
-        >
-          <p>
-            <strong>Bloqueo registrado.</strong> Consultá el
-            resultado de la evaluación en el panel del recorrido.
-          </p>
+      <div
+        className="simulation-incident-result"
+        role="status"
+      >
+        <p>
+          <strong>Activos:</strong>{' '}
+          {activeIncidents.length}
+          {' · '}
+          <strong>Finalizados:</strong>{' '}
+          {finishedCount}
+        </p>
 
-          <p>
-            Vencimiento del registro:{' '}
-            {new Date(incident.expiresAt).toLocaleTimeString(
-              'es-AR',
-            )}{' '}
-            (hora local).
-          </p>
-        </div>
+        <p>
+          La vigencia sigue el reloj del escenario.
+          Los incidentes finalizados se conservan
+          en el historial.
+        </p>
+      </div>
+
+      {incidents.length > 0 && (
+        <details>
+          <summary>
+            Historial de incidentes ({incidents.length})
+          </summary>
+
+          {incidents.map((incident) => {
+            const status = getIncidentStatus(
+              incident,
+              nowMs,
+            )
+
+            const statusLabel =
+              status === 'active'
+                ? 'Activo'
+                : status === 'scheduled'
+                  ? 'Programado'
+                  : 'Finalizado'
+
+            return (
+              <div
+                className="simulation-incident-result"
+                key={incident.id}
+              >
+                <p>
+                  <strong>
+                    {INCIDENT_LABELS[incident.type]}
+                  </strong>
+                  {' · '}{statusLabel}
+                </p>
+
+                <p>{incident.description}</p>
+
+                <p>
+                  Informante:{' '}
+                  {incident.reporterName ?? 'Sin identificar'}
+                </p>
+
+                <p>
+                  Inicio: {formatDate(incident.startsAt)}
+                </p>
+
+                <p>
+                  Fin: {formatDate(incident.expiresAt)}
+                </p>
+              </div>
+            )
+          })}
+        </details>
       )}
     </section>
   )

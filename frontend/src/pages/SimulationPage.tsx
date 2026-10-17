@@ -2,17 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
 import blockageIconUrl from '../assets/incidents/blockage.png'
+
 import SimulationIncidentSection from '../components/SimulationIncidentSection'
 import type { BlockedArea } from '../components/SimulationIncidentSection'
+
 import {
   calculateRouteEstimates,
   isRobotOperatingProfile,
 } from '../utils/route-estimates'
 import type { RobotOperatingProfile } from '../utils/route-estimates'
+
 import { useRobotSimulation } from '../hooks/useRobotSimulation'
+import { useScenarioClock } from '../hooks/useScenarioClock'
+
 import './DemoPage.css'
 import './SimulationPage.css'
 
@@ -89,7 +95,9 @@ function isDeliveryDraft(value: unknown): value is DeliveryDraft {
 
   const draft = value as Record<string, unknown>
 
-  if (!draft.robot || typeof draft.robot !== 'object') return false
+  if (!draft.robot || typeof draft.robot !== 'object') {
+    return false
+  }
 
   const robot = draft.robot as Record<string, unknown>
 
@@ -162,7 +170,9 @@ function isReplanningResult(value: unknown): value is ReplanningResult {
     typeof result.explanation === 'string' &&
     result.explanation.trim().length > 0 &&
     Array.isArray(result.incidentIds) &&
-    result.incidentIds.every((id: unknown) => typeof id === 'string') &&
+    result.incidentIds.every(
+      (id: unknown) => typeof id === 'string',
+    ) &&
     Array.isArray(result.toolCalls) &&
     result.toolCalls.every(isToolExecution) &&
     (
@@ -197,7 +207,10 @@ async function readResponse(response: Response): Promise<unknown> {
 }
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.name === 'TimeoutError') {
+  if (
+    error instanceof Error &&
+    error.name === 'TimeoutError'
+  ) {
     return 'La operación tardó demasiado. No se aplicaron cambios en esta pantalla.'
   }
 
@@ -226,30 +239,51 @@ function SimulationContent({
   const robotMarkerRef = useRef<L.Marker | null>(null)
   const remainingRouteRef = useRef<L.Polyline | null>(null)
   const originMarkerRef = useRef<L.CircleMarker | null>(null)
-  const replanningControllerRef = useRef<AbortController | null>(null)
+
+  const replanningControllerRef =
+    useRef<AbortController | null>(null)
+
   const replanningPendingRef = useRef(false)
 
   const draft = isDeliveryDraft(navigationState)
     ? navigationState
     : null
 
-  const [simulationId] = useState(() => crypto.randomUUID())
-  const [route, setRoute] = useState<RouteResponse | null>(null)
-  const [alternative, setAlternative] = useState<RouteResponse | null>(null)
-  const [blockedAreas, setBlockedAreas] = useState<BlockedArea[]>([])
+  const [simulationId] = useState(
+    () => crypto.randomUUID(),
+  )
+
+  const [route, setRoute] =
+    useState<RouteResponse | null>(null)
+
+  const [alternative, setAlternative] =
+    useState<RouteResponse | null>(null)
+
+  const [blockedAreas, setBlockedAreas] =
+    useState<BlockedArea[]>([])
+
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const [incidentSaving, setIncidentSaving] = useState(false)
 
   const [replanningStatus, setReplanningStatus] =
     useState<ReplanningStatus>('idle')
+
   const [replanningError, setReplanningError] = useState('')
   const [explanation, setExplanation] = useState('')
-  const [toolCalls, setToolCalls] = useState<ToolExecution[]>([])
+
+  const [toolCalls, setToolCalls] =
+    useState<ToolExecution[]>([])
+
   const [comparisonDistance, setComparisonDistance] =
     useState<number | null>(null)
 
-  const motion = useRobotSimulation(draft?.robot.speedKmh ?? 0)
+  const clock = useScenarioClock()
+
+  const motion = useRobotSimulation(
+    draft?.robot.speedKmh ?? 0,
+  )
+
   const { loadRoute } = motion
 
   const hasBlockages = blockedAreas.length > 0
@@ -264,13 +298,23 @@ function SimulationContent({
       : null
 
   const traveledEstimates = draft
-    ? calculateRouteEstimates(motion.traveledMeters, draft.robot)
+    ? calculateRouteEstimates(
+      motion.traveledMeters,
+      draft.robot,
+    )
     : null
 
-  const movementBlocked =
+  const evaluationBusy =
     incidentSaving ||
-    replanningStatus === 'loading' ||
+    replanningStatus === 'loading'
+
+  const movementBlocked =
+    evaluationBusy ||
     (hasBlockages && replanningStatus !== 'ready')
+
+  const waitingDisabled =
+    evaluationBusy ||
+    motion.status === 'running'
 
   useEffect(() => {
     return () => {
@@ -294,7 +338,10 @@ function SimulationContent({
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ origin, destination }),
+          body: JSON.stringify({
+            origin,
+            destination,
+          }),
           signal: AbortSignal.any([
             controller.signal,
             AbortSignal.timeout(25000),
@@ -304,7 +351,9 @@ function SimulationContent({
         const body = await readResponse(response)
 
         if (!isRouteResponse(body)) {
-          throw new Error('El servidor devolvió una ruta inválida.')
+          throw new Error(
+            'El servidor devolvió una ruta inválida.',
+          )
         }
 
         if (!controller.signal.aborted) {
@@ -338,13 +387,19 @@ function SimulationContent({
 
     if (!origin || !destination) return
 
-    const map = L.map(containerRef.current).setView(origin, 15)
+    const map = L.map(containerRef.current).setView(
+      origin,
+      15,
+    )
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(map)
+    L.tileLayer(
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        maxZoom: 19,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+    ).addTo(map)
 
     remainingRouteRef.current = L.polyline([], {
       color: '#0f766e',
@@ -354,8 +409,6 @@ function SimulationContent({
       .bindTooltip('Recorrido pendiente')
       .addTo(map)
 
-    // El origen solo se muestra antes del primer avance.
-    // Al cargar un desvío, el robot ya representa su punto de inicio.
     if (!alternative) {
       originMarkerRef.current = L.circleMarker(origin, {
         radius: 8,
@@ -400,7 +453,8 @@ function SimulationContent({
       .bindTooltip('Robot simulado')
       .addTo(map)
 
-    blockedLayerRef.current = L.layerGroup().addTo(map)
+    blockedLayerRef.current =
+      L.layerGroup().addTo(map)
 
     map.fitBounds(L.latLngBounds(positions), {
       padding: [40, 40],
@@ -430,7 +484,9 @@ function SimulationContent({
           ([lng, lat]) => [lat, lng],
         )
 
-    remainingRouteRef.current?.setLatLngs(remainingPositions)
+    remainingRouteRef.current?.setLatLngs(
+      remainingPositions,
+    )
 
     if (
       motion.traveledMeters > 0 ||
@@ -476,18 +532,85 @@ function SimulationContent({
         keyboard: true,
         riseOnHover: true,
       })
-        .bindTooltip('Paso bloqueado — incidente simulado', {
-          direction: 'top',
-        })
+        .bindTooltip(
+          'Paso bloqueado — incidente simulado',
+          {
+            direction: 'top',
+          },
+        )
         .addTo(layer)
     })
   }, [route, alternative, blockedAreas])
 
-  async function requestReplanning() {
-    if (!draft || !route || replanningPendingRef.current) return
+  function pauseScenarioAndRobot() {
+    motion.pause()
+    clock.pause()
+  }
+
+  function changeSimulationSpeed(value: number) {
+    motion.setMultiplier(value)
+    clock.setMultiplier(value)
+  }
+
+  function toggleScenarioClock() {
+    if (
+      evaluationBusy ||
+      replanningPendingRef.current
+    ) {
+      return
+    }
+
+    if (clock.running) {
+      pauseScenarioAndRobot()
+    } else {
+      // Permite avanzar el escenario sin mover el robot.
+      clock.start()
+    }
+  }
+
+  function waitInScenario(seconds: number) {
+    if (
+      waitingDisabled ||
+      replanningPendingRef.current
+    ) {
+      return
+    }
 
     motion.pause()
+    clock.advanceBy(seconds)
+  }
 
+  function advanceRobotByTwoMinutes() {
+    if (
+      movementBlocked ||
+      replanningPendingRef.current ||
+      motion.status === 'running' ||
+      motion.status === 'completed' ||
+      motion.status === 'empty'
+    ) {
+      return
+    }
+
+    pauseScenarioAndRobot()
+    motion.advanceBy(120)
+
+    // El escenario avanza el intervalo completo aunque
+    // el robot llegue antes al destino.
+    clock.advanceBy(120)
+  }
+
+  async function requestReplanning() {
+    if (
+      !draft ||
+      !route ||
+      replanningPendingRef.current
+    ) {
+      return
+    }
+
+    pauseScenarioAndRobot()
+
+    const scenarioTime = clock.getScenarioTime()
     const current = motion.getSnapshot()
 
     const origin = current.position
@@ -519,6 +642,7 @@ function SimulationContent({
           simulationId,
           origin,
           destination: draft.destination,
+          scenarioTime,
         }),
         signal: AbortSignal.any([
           controller.signal,
@@ -552,25 +676,44 @@ function SimulationContent({
         setReplanningStatus('error')
       }
     } finally {
-      if (replanningControllerRef.current === controller) {
+      if (
+        replanningControllerRef.current === controller
+      ) {
         replanningPendingRef.current = false
         replanningControllerRef.current = null
       }
     }
   }
 
-  function handleBlockedAreasChange(areas: BlockedArea[]) {
-    motion.pause()
+  function handleBlockedAreasChange(
+    areas: BlockedArea[],
+    options: {
+      requestReplanning: boolean
+    },
+  ) {
     setBlockedAreas(areas)
 
-    if (areas.length > 0) {
+    if (
+      options.requestReplanning &&
+      areas.length > 0
+    ) {
+      pauseScenarioAndRobot()
       void requestReplanning()
+      return
+    }
+
+    // Si finalizaron todos los bloqueos, permite continuar
+    // incluso si la evaluación anterior había fallado.
+    if (areas.length === 0) {
+      setReplanningError('')
+      setReplanningStatus(
+        alternative ? 'ready' : 'idle',
+      )
     }
   }
-
   function handleCreatingChange(creating: boolean) {
     if (creating) {
-      motion.pause()
+      pauseScenarioAndRobot()
     }
 
     setIncidentSaving(creating)
@@ -582,11 +725,19 @@ function SimulationContent({
   }
 
   function toggleMovement() {
-    if (movementBlocked || replanningPendingRef.current) return
+    if (
+      movementBlocked ||
+      replanningPendingRef.current ||
+      motion.status === 'completed' ||
+      motion.status === 'empty'
+    ) {
+      return
+    }
 
     if (motion.status === 'running') {
-      motion.pause()
+      pauseScenarioAndRobot()
     } else {
+      clock.start()
       motion.start()
     }
   }
@@ -631,14 +782,28 @@ function SimulationContent({
             to="/"
             aria-label="RouteRobots — Inicio"
           >
-            <img className="demo-brand-robot" src={robotLogo} alt="" />
-            <img className="demo-brand-name" src={brandName} alt="" />
+            <img
+              className="demo-brand-robot"
+              src={robotLogo}
+              alt=""
+            />
+            <img
+              className="demo-brand-name"
+              src={brandName}
+              alt=""
+            />
           </Link>
 
-          <nav className="demo-nav" aria-label="Principal">
+          <nav
+            className="demo-nav"
+            aria-label="Principal"
+          >
             <Link to="/">Plataforma</Link>
 
-            <Link className="demo-nav-button" to="/demo">
+            <Link
+              className="demo-nav-button"
+              to="/demo"
+            >
               Configurar otra entrega
               <span aria-hidden="true">↗</span>
             </Link>
@@ -651,13 +816,18 @@ function SimulationContent({
           <section className="simulation-empty">
             <h1>Primero prepará una entrega</h1>
             <p>
-              Seleccioná un robot, el origen y el destino para
-              continuar a la simulación.
+              Seleccioná un robot, el origen y el destino
+              para continuar a la simulación.
             </p>
-            <Link to="/demo">Ir a preparar entrega →</Link>
+            <Link to="/demo">
+              Ir a preparar entrega →
+            </Link>
           </section>
         ) : !route || !displayedRoute ? (
-          <section className="simulation-empty" aria-busy={!error}>
+          <section
+            className="simulation-empty"
+            aria-busy={!error}
+          >
             <h1>
               {error
                 ? 'No pudimos preparar la ruta'
@@ -678,11 +848,14 @@ function SimulationContent({
               </>
             ) : (
               <p role="status">
-                Calculando el recorrido para {draft.robot.name}…
+                Calculando el recorrido para{' '}
+                {draft.robot.name}…
               </p>
             )}
 
-            <Link to="/demo">Volver a preparar entrega →</Link>
+            <Link to="/demo">
+              Volver a preparar entrega →
+            </Link>
           </section>
         ) : (
           <>
@@ -691,23 +864,112 @@ function SimulationContent({
                 <p className="simulation-eyebrow">
                   SEGUIMIENTO DE ENTREGA
                 </p>
+
                 <h1>El recorrido y sus decisiones</h1>
+
                 <p>
-                  Robot: <strong>{draft.robot.name}</strong>
+                  Robot:{' '}
+                  <strong>{draft.robot.name}</strong>
                   {' · '}Washington D. C.
                 </p>
               </div>
 
-              <span className="simulation-state" role="status">
+              <span
+                className="simulation-state"
+                role="status"
+              >
                 {stateLabel}
               </span>
             </div>
 
             <div className="simulation-toolbar">
               <div className="simulation-clock">
-                <span>Tiempo simulado de marcha</span>
+                <span>Fecha y hora del escenario</span>
+
                 <strong>
-                  {formatNumber(motion.elapsedSeconds / 60)} min
+                  {new Date(
+                    clock.nowMs,
+                  ).toLocaleString('es-AR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false,
+                  })}
+                </strong>
+              </div>
+
+              <div className="simulation-controls">
+                <button
+                  type="button"
+                  onClick={toggleScenarioClock}
+                  disabled={evaluationBusy}
+                >
+                  {clock.running
+                    ? 'Pausar escenario'
+                    : 'Avanzar escenario'}
+                </button>
+
+                <label htmlFor="scenario-speed">
+                  Velocidad del reloj
+
+                  <select
+                    id="scenario-speed"
+                    value={clock.multiplier}
+                    onChange={(event) =>
+                      changeSimulationSpeed(
+                        Number(event.target.value),
+                      )
+                    }
+                    disabled={evaluationBusy}
+                  >
+                    <option value="1">×1</option>
+                    <option value="10">×10</option>
+                    <option value="60">×60</option>
+                  </select>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => waitInScenario(120)}
+                  disabled={waitingDisabled}
+                >
+                  Esperar 2 minutos
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    waitInScenario(24 * 60 * 60)
+                  }
+                  disabled={waitingDisabled}
+                >
+                  Esperar 1 día
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    waitInScenario(11 * 24 * 60 * 60)
+                  }
+                  disabled={waitingDisabled}
+                >
+                  Esperar 11 días
+                </button>
+              </div>
+            </div>
+
+            <div className="simulation-toolbar">
+              <div className="simulation-clock">
+                <span>Tiempo simulado de marcha</span>
+
+                <strong>
+                  {formatNumber(
+                    motion.elapsedSeconds / 60,
+                  )}{' '}
+                  min
                 </strong>
               </div>
 
@@ -724,20 +986,24 @@ function SimulationContent({
                   {motion.status === 'completed'
                     ? 'Recorrido finalizado'
                     : motion.status === 'running'
-                      ? 'Pausar'
+                      ? 'Pausar recorrido'
                       : motion.elapsedSeconds > 0
-                        ? 'Reanudar'
-                        : 'Iniciar'}
+                        ? 'Reanudar recorrido'
+                        : 'Iniciar recorrido'}
                 </button>
 
                 <label htmlFor="simulation-speed">
                   Velocidad de simulación
+
                   <select
                     id="simulation-speed"
                     value={motion.multiplier}
                     onChange={(event) =>
-                      motion.setMultiplier(Number(event.target.value))
+                      changeSimulationSpeed(
+                        Number(event.target.value),
+                      )
                     }
+                    disabled={evaluationBusy}
                   >
                     <option value="1">×1</option>
                     <option value="10">×10</option>
@@ -747,7 +1013,7 @@ function SimulationContent({
 
                 <button
                   type="button"
-                  onClick={() => motion.advanceBy(120)}
+                  onClick={advanceRobotByTwoMinutes}
                   disabled={
                     movementBlocked ||
                     motion.status === 'running' ||
@@ -755,36 +1021,44 @@ function SimulationContent({
                     motion.status === 'empty'
                   }
                 >
-                  +2 minutos
-                </button>
-
-                <button type="button" disabled>
-                  +11 días
+                  Recorrer 2 minutos
                 </button>
               </div>
             </div>
 
             <p className="simulation-progress">
               Recorrido:{' '}
-              <strong>{formatNumber(motion.traveledMeters)} m</strong>
+              <strong>
+                {formatNumber(motion.traveledMeters)} m
+              </strong>
               {' · '}Pendiente:{' '}
-              <strong>{formatNumber(motion.remainingMeters)} m</strong>
+              <strong>
+                {formatNumber(motion.remainingMeters)} m
+              </strong>
+
               {traveledEstimates && (
                 <>
                   {' · '}Consumo acumulado estimado:{' '}
                   <strong>
-                    {formatNumber(traveledEstimates.consumptionWh)} Wh
+                    {formatNumber(
+                      traveledEstimates.consumptionWh,
+                    )}{' '}
+                    Wh
                   </strong>
                 </>
               )}
-              {motion.status === 'completed' && ' · Destino alcanzado'}
+
+              {motion.status === 'completed' &&
+                ' · Destino alcanzado'}
             </p>
 
             <p className="simulation-notice">
-              El robot avanza según su velocidad operativa. Al registrar
-              un bloqueo se pausa el recorrido y se solicita un desvío
-              desde su posición actual. El tiempo mostrado corresponde
-              a marcha simulada, sin esperas.
+              El reloj del escenario puede avanzar con el
+              robot detenido o después de llegar al destino.
+              Las esperas no suman distancia ni consumo de
+              marcha. Al registrar un bloqueo se pausan el
+              robot y el reloj para evaluar un desvío desde
+              su posición actual.
             </p>
 
             <div className="simulation-grid">
@@ -800,6 +1074,7 @@ function SimulationContent({
                         ? 'Desvío pendiente'
                         : 'Recorrido pendiente'}
                   </h2>
+
                   <span>{stateLabel}</span>
                 </div>
 
@@ -817,13 +1092,19 @@ function SimulationContent({
                     motion.traveledMeters === 0 &&
                     motion.status !== 'completed' && (
                       <span>
-                        <i className="legend-origin" aria-hidden="true" />
+                        <i
+                          className="legend-origin"
+                          aria-hidden="true"
+                        />
                         Origen
                       </span>
                     )}
 
                   <span>
-                    <i className="legend-destination" aria-hidden="true" />
+                    <i
+                      className="legend-destination"
+                      aria-hidden="true"
+                    />
                     Destino
                   </span>
 
@@ -838,7 +1119,10 @@ function SimulationContent({
 
                   {motion.status !== 'completed' && (
                     <span>
-                      <i className="legend-route" aria-hidden="true" />
+                      <i
+                        className="legend-route"
+                        aria-hidden="true"
+                      />
                       {alternative
                         ? 'Desvío pendiente'
                         : 'Recorrido pendiente'}
@@ -864,8 +1148,12 @@ function SimulationContent({
                         ? 'Distancia del desvío'
                         : 'Distancia original'}
                     </dt>
+
                     <dd>
-                      {formatNumber(displayedRoute.distanceMeters)} m
+                      {formatNumber(
+                        displayedRoute.distanceMeters,
+                      )}{' '}
+                      m
                     </dd>
                   </div>
 
@@ -875,6 +1163,7 @@ function SimulationContent({
                         ? 'Tiempo estimado del desvío'
                         : 'Tiempo estimado del robot'}
                     </dt>
+
                     <dd>
                       {estimates
                         ? `${formatNumber(
@@ -890,6 +1179,7 @@ function SimulationContent({
                         ? 'Consumo estimado del desvío'
                         : 'Consumo estimado del recorrido'}
                     </dt>
+
                     <dd>
                       {estimates
                         ? `${formatNumber(
@@ -900,7 +1190,10 @@ function SimulationContent({
                   </div>
 
                   <div>
-                    <dt>Capacidad de batería requerida</dt>
+                    <dt>
+                      Capacidad de batería requerida
+                    </dt>
+
                     <dd>
                       {estimates
                         ? `${formatNumber(
@@ -912,27 +1205,35 @@ function SimulationContent({
                 </dl>
 
                 <p className="simulation-estimates-note">
-                  Estimaciones a velocidad constante y consumo de
-                  referencia, sin pendientes, clima ni esperas.
+                  Estimaciones a velocidad constante y
+                  consumo de referencia, sin pendientes,
+                  clima ni consumo durante las esperas.
                   {alternative
                     ? ' Las métricas corresponden al desvío desde el punto donde se pausó el robot.'
                     : ' Las métricas corresponden al recorrido original completo.'}
-                  {' '}El porcentaje expresa capacidad requerida,
-                  no batería restante.
+                  {' '}El porcentaje expresa capacidad
+                  requerida, no batería restante.
                 </p>
 
-                {estimates && estimates.requiredCapacityPercent > 100 && (
-                  <p className="simulation-capacity-warning" role="status">
-                    El consumo estimado del recorrido mostrado supera
-                    la capacidad nominal de batería del robot.
-                  </p>
-                )}
+                {estimates &&
+                  estimates.requiredCapacityPercent > 100 && (
+                    <p
+                      className="simulation-capacity-warning"
+                      role="status"
+                    >
+                      El consumo estimado del recorrido
+                      mostrado supera la capacidad nominal
+                      de batería del robot.
+                    </p>
+                  )}
               </section>
 
               <aside className="simulation-side">
                 <section
                   className="simulation-card"
-                  aria-busy={replanningStatus === 'loading'}
+                  aria-busy={
+                    replanningStatus === 'loading'
+                  }
                 >
                   <p className="simulation-eyebrow">
                     EVALUACIÓN DEL RECORRIDO
@@ -942,15 +1243,17 @@ function SimulationContent({
 
                   {replanningStatus === 'loading' && (
                     <p role="status">
-                      El robot está pausado. La IA está consultando
-                      los incidentes y evaluando un desvío mediante MCP.
+                      El robot y el reloj están pausados.
+                      La IA está consultando los incidentes
+                      y evaluando un desvío mediante MCP.
                     </p>
                   )}
 
                   {replanningStatus === 'idle' && (
                     <p>
-                      Podés iniciar el recorrido y generar un bloqueo
-                      por delante del robot para evaluar un desvío.
+                      Podés iniciar el recorrido y generar
+                      un bloqueo por delante del robot para
+                      evaluar un desvío.
                     </p>
                   )}
 
@@ -959,10 +1262,12 @@ function SimulationContent({
                       <p className="simulation-ai-explanation">
                         {explanation}
                       </p>
+
                       <p className="simulation-estimates-note">
-                        La duración del proveedor corresponde al perfil
-                        peatonal. Las métricas del mapa utilizan la
-                        velocidad operativa del robot.
+                        La duración del proveedor corresponde
+                        al perfil peatonal. Las métricas del
+                        mapa utilizan la velocidad operativa
+                        del robot.
                       </p>
                     </>
                   )}
@@ -970,9 +1275,10 @@ function SimulationContent({
                   {replanningStatus === 'ready' &&
                     motion.status === 'paused' && (
                       <p className="simulation-route-comparison">
-                        El desvío está cargado. Pulsá Reanudar para
-                        continuar; si todavía no habías iniciado,
-                        pulsá Iniciar.
+                        El desvío está cargado. Pulsá
+                        Reanudar recorrido para continuar;
+                        si todavía no habías iniciado,
+                        pulsá Iniciar recorrido.
                       </p>
                     )}
 
@@ -987,7 +1293,8 @@ function SimulationContent({
 
                   {distanceDifference !== null && (
                     <p className="simulation-route-comparison">
-                      Diferencia respecto del recorrido pendiente:{' '}
+                      Diferencia respecto del recorrido
+                      pendiente:{' '}
                       <strong>
                         {distanceDifference > 0 ? '+' : ''}
                         {formatNumber(distanceDifference)} m
@@ -1002,7 +1309,9 @@ function SimulationContent({
                       <button
                         className="simulation-retry"
                         type="button"
-                        onClick={() => void requestReplanning()}
+                        onClick={() =>
+                          void requestReplanning()
+                        }
                         disabled={incidentSaving}
                       >
                         Reintentar evaluación
@@ -1017,17 +1326,33 @@ function SimulationContent({
 
                     <div>
                       <dt>Velocidad operativa</dt>
-                      <dd>{formatNumber(draft.robot.speedKmh)} km/h</dd>
+                      <dd>
+                        {formatNumber(
+                          draft.robot.speedKmh,
+                        )}{' '}
+                        km/h
+                      </dd>
                     </div>
 
                     <div>
-                      <dt>Consumo acumulado estimado</dt>
+                      <dt>
+                        Consumo acumulado estimado
+                      </dt>
                       <dd>
                         {traveledEstimates
                           ? `${formatNumber(
                             traveledEstimates.consumptionWh,
                           )} Wh`
                           : 'No disponible'}
+                      </dd>
+                    </div>
+
+                    <div>
+                      <dt>Reloj del escenario</dt>
+                      <dd>
+                        {clock.running
+                          ? 'Avanzando'
+                          : 'Pausado'}
                       </dd>
                     </div>
 
@@ -1044,7 +1369,9 @@ function SimulationContent({
                     <div>
                       <dt>Alternativa</dt>
                       <dd>
-                        {alternative ? 'Cargada en el escenario' : 'Sin cargar'}
+                        {alternative
+                          ? 'Cargada en el escenario'
+                          : 'Sin cargar'}
                       </dd>
                     </div>
                   </dl>
@@ -1055,38 +1382,52 @@ function SimulationContent({
 
                   <ol className="simulation-activity">
                     <li>
-                      Se recibió el robot {draft.robot.name} junto
-                      con el origen y el destino.
+                      Se recibió el robot{' '}
+                      {draft.robot.name} junto con el
+                      origen y el destino.
                     </li>
 
-                    <li>Se calculó la ruta original.</li>
+                    <li>
+                      Se calculó la ruta original.
+                    </li>
 
                     {hasBlockages && (
                       <li>
-                        Se registró el bloqueo y se pausó el recorrido.
+                        Se registró el bloqueo y se
+                        pausó el recorrido.
                       </li>
                     )}
 
                     {toolCalls.map((tool, index) => (
-                      <li key={`${tool.name}-${index}`}>
+                      <li
+                        key={`${tool.name}-${index}`}
+                      >
                         {tool.name === 'consultar_incidentes'
                           ? 'Consulta de incidentes'
                           : tool.name === 'calcular_desvio'
                             ? 'Cálculo del desvío'
                             : 'Ejecución de herramienta'}
-                        : {tool.success ? 'completado' : 'sin éxito'}.
+                        :{' '}
+                        {tool.success
+                          ? 'completado'
+                          : 'sin éxito'}.
                       </li>
                     ))}
 
                     {alternative && (
                       <li>
-                        Se cargó una alternativa desde la posición
-                        donde se pausó el robot.
+                        Se cargó una alternativa desde
+                        la posición donde se pausó el
+                        robot.
                       </li>
                     )}
 
                     {motion.status === 'completed' && (
-                      <li>El robot alcanzó el destino.</li>
+                      <li>
+                        El robot alcanzó el destino.
+                        El reloj del escenario puede
+                        continuar avanzando.
+                      </li>
                     )}
                   </ol>
                 </section>
@@ -1095,12 +1436,14 @@ function SimulationContent({
 
             <SimulationIncidentSection
               simulationId={simulationId}
+              scenarioTime={clock.scenarioTime}
+              getScenarioTime={clock.getScenarioTime}
               coordinates={
                 motion.remainingCoordinates.length >= 2
                   ? motion.remainingCoordinates
                   : route.geometry.coordinates
               }
-              onBeforeCreate={motion.pause}
+              onBeforeCreate={pauseScenarioAndRobot}
               onCreatingChange={handleCreatingChange}
               onBlockedAreasChange={handleBlockedAreasChange}
             />

@@ -59,10 +59,17 @@ describe('Servicio de incidentes', () => {
             [
                 expect.any(String),
                 simulationId,
+                'blockage',
+                'simulation',
+                'Bloqueo registrado en la simulación.',
+                'blockage',
+                'Simulador',
                 38.908,
                 -77.035,
                 38.909,
                 -77.034,
+                expect.any(Date),
+                expect.any(Date),
             ],
         );
     });
@@ -100,7 +107,10 @@ describe('Servicio de incidentes', () => {
 
         expect(queryMock).toHaveBeenCalledWith(
             expect.any(String),
-            [simulationId],
+            [
+                simulationId,
+                expect.any(Date),
+            ],
         );
     });
 
