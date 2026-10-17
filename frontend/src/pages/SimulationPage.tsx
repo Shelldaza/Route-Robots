@@ -50,15 +50,15 @@ type ReplanningResult = {
   incidentIds: string[]
   toolCalls: ToolExecution[]
 } & (
-  | {
+    | {
       status: 'alternative_ready'
       route: RouteResponse
     }
-  | {
+    | {
       status: 'not_replanned'
       route: null
     }
-)
+  )
 
 type ReplanningStatus =
   | 'idle'
@@ -184,9 +184,9 @@ async function readResponse(response: Response): Promise<unknown> {
   if (!response.ok) {
     const message =
       body &&
-      typeof body === 'object' &&
-      'message' in body &&
-      typeof body.message === 'string'
+        typeof body === 'object' &&
+        'message' in body &&
+        typeof body.message === 'string'
         ? body.message
         : 'No se pudo completar la operación.'
 
@@ -224,6 +224,8 @@ function SimulationContent({
   const containerRef = useRef<HTMLDivElement>(null)
   const blockedLayerRef = useRef<L.LayerGroup | null>(null)
   const robotMarkerRef = useRef<L.Marker | null>(null)
+  const remainingRouteRef = useRef<L.Polyline | null>(null)
+  const originMarkerRef = useRef<L.CircleMarker | null>(null)
   const replanningControllerRef = useRef<AbortController | null>(null)
   const replanningPendingRef = useRef(false)
 
@@ -256,9 +258,9 @@ function SimulationContent({
   const estimates =
     draft && displayedRoute
       ? calculateRouteEstimates(
-          displayedRoute.distanceMeters,
-          draft.robot,
-        )
+        displayedRoute.distanceMeters,
+        draft.robot,
+      )
       : null
 
   const traveledEstimates = draft
@@ -324,11 +326,15 @@ function SimulationContent({
   useEffect(() => {
     if (!containerRef.current || !route) return
 
-    const originalPositions: L.LatLngTuple[] =
-      route.geometry.coordinates.map(([lng, lat]) => [lat, lng])
+    const activeRoute = alternative ?? route
 
-    const origin = originalPositions[0]
-    const destination = originalPositions[originalPositions.length - 1]
+    const positions: L.LatLngTuple[] =
+      activeRoute.geometry.coordinates.map(
+        ([lng, lat]) => [lat, lng],
+      )
+
+    const origin = positions[0]
+    const destination = positions[positions.length - 1]
 
     if (!origin || !destination) return
 
@@ -340,46 +346,30 @@ function SimulationContent({
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map)
 
-    L.polyline(originalPositions, {
-      color: alternative ? '#737373' : '#0f766e',
-      weight: alternative ? 4 : 5,
-      opacity: alternative ? 0.65 : 0.9,
-      dashArray: alternative ? '7 8' : undefined,
+    remainingRouteRef.current = L.polyline([], {
+      color: '#0f766e',
+      weight: 6,
+      opacity: 0.95,
     })
-      .bindTooltip('Ruta original')
+      .bindTooltip('Recorrido pendiente')
       .addTo(map)
 
-    const bounds = L.latLngBounds(originalPositions)
-
-    if (alternative) {
-      const alternativePositions: L.LatLngTuple[] =
-        alternative.geometry.coordinates.map(
-          ([lng, lat]) => [lat, lng],
-        )
-
-      const alternativeLine = L.polyline(alternativePositions, {
-        color: '#0f766e',
-        weight: 6,
-        opacity: 0.95,
+    // El origen solo se muestra antes del primer avance.
+    // Al cargar un desvío, el robot ya representa su punto de inicio.
+    if (!alternative) {
+      originMarkerRef.current = L.circleMarker(origin, {
+        radius: 8,
+        color: '#fff',
+        weight: 3,
+        fillColor: '#15803d',
+        fillOpacity: 1,
       })
-        .bindTooltip('Alternativa validada')
+        .bindTooltip('Origen', {
+          permanent: true,
+          direction: 'top',
+        })
         .addTo(map)
-
-      bounds.extend(alternativeLine.getBounds())
     }
-
-    L.circleMarker(origin, {
-      radius: 8,
-      color: '#fff',
-      weight: 3,
-      fillColor: '#15803d',
-      fillOpacity: 1,
-    })
-      .bindTooltip('Origen', {
-        permanent: true,
-        direction: 'top',
-      })
-      .addTo(map)
 
     L.circleMarker(destination, {
       radius: 8,
@@ -412,12 +402,14 @@ function SimulationContent({
 
     blockedLayerRef.current = L.layerGroup().addTo(map)
 
-    map.fitBounds(bounds, {
+    map.fitBounds(L.latLngBounds(positions), {
       padding: [40, 40],
       maxZoom: 17,
     })
 
     return () => {
+      remainingRouteRef.current = null
+      originMarkerRef.current = null
       robotMarkerRef.current = null
       blockedLayerRef.current = null
       map.remove()
@@ -425,12 +417,36 @@ function SimulationContent({
   }, [route, alternative])
 
   useEffect(() => {
-    if (!motion.position) return
+    if (motion.position) {
+      const [lng, lat] = motion.position
 
-    const [lng, lat] = motion.position
+      robotMarkerRef.current?.setLatLng([lat, lng])
+    }
 
-    robotMarkerRef.current?.setLatLng([lat, lng])
-  }, [motion.position, route, alternative])
+    const remainingPositions: L.LatLngTuple[] =
+      motion.status === 'completed'
+        ? []
+        : motion.remainingCoordinates.map(
+          ([lng, lat]) => [lat, lng],
+        )
+
+    remainingRouteRef.current?.setLatLngs(remainingPositions)
+
+    if (
+      motion.traveledMeters > 0 ||
+      motion.status === 'completed'
+    ) {
+      originMarkerRef.current?.remove()
+      originMarkerRef.current = null
+    }
+  }, [
+    motion.position,
+    motion.remainingCoordinates,
+    motion.traveledMeters,
+    motion.status,
+    route,
+    alternative,
+  ])
 
   useEffect(() => {
     const layer = blockedLayerRef.current
@@ -476,9 +492,9 @@ function SimulationContent({
 
     const origin = current.position
       ? {
-          lat: current.position[1],
-          lng: current.position[0],
-        }
+        lat: current.position[1],
+        lng: current.position[0],
+      }
       : draft.origin
 
     setComparisonDistance(current.remainingMeters)
@@ -778,9 +794,11 @@ function SimulationContent({
               >
                 <div className="simulation-panel-heading">
                   <h2 id="simulation-route-title">
-                    {alternative
-                      ? 'Ruta original y desvío desde el robot'
-                      : 'Recorrido original'}
+                    {motion.status === 'completed'
+                      ? 'Destino alcanzado'
+                      : alternative
+                        ? 'Desvío pendiente'
+                        : 'Recorrido pendiente'}
                   </h2>
                   <span>{stateLabel}</span>
                 </div>
@@ -795,16 +813,17 @@ function SimulationContent({
                   className="simulation-legend"
                   aria-label="Referencias del mapa"
                 >
-                  <span>
-                    <i className="legend-origin" aria-hidden="true" />
-                    Origen
-                  </span>
+                  {!alternative &&
+                    motion.traveledMeters === 0 &&
+                    motion.status !== 'completed' && (
+                      <span>
+                        <i className="legend-origin" aria-hidden="true" />
+                        Origen
+                      </span>
+                    )}
 
                   <span>
-                    <i
-                      className="legend-destination"
-                      aria-hidden="true"
-                    />
+                    <i className="legend-destination" aria-hidden="true" />
                     Destino
                   </span>
 
@@ -817,20 +836,12 @@ function SimulationContent({
                     Robot
                   </span>
 
-                  <span>
-                    <i
-                      className={
-                        alternative ? 'legend-original' : 'legend-route'
-                      }
-                      aria-hidden="true"
-                    />
-                    Ruta original
-                  </span>
-
-                  {alternative && (
+                  {motion.status !== 'completed' && (
                     <span>
                       <i className="legend-route" aria-hidden="true" />
-                      Desvío
+                      {alternative
+                        ? 'Desvío pendiente'
+                        : 'Recorrido pendiente'}
                     </span>
                   )}
 
@@ -867,8 +878,8 @@ function SimulationContent({
                     <dd>
                       {estimates
                         ? `${formatNumber(
-                            estimates.durationSeconds / 60,
-                          )} min`
+                          estimates.durationSeconds / 60,
+                        )} min`
                         : '—'}
                     </dd>
                   </div>
@@ -882,8 +893,8 @@ function SimulationContent({
                     <dd>
                       {estimates
                         ? `${formatNumber(
-                            estimates.consumptionWh,
-                          )} Wh`
+                          estimates.consumptionWh,
+                        )} Wh`
                         : '—'}
                     </dd>
                   </div>
@@ -893,8 +904,8 @@ function SimulationContent({
                     <dd>
                       {estimates
                         ? `${formatNumber(
-                            estimates.requiredCapacityPercent,
-                          )} %`
+                          estimates.requiredCapacityPercent,
+                        )} %`
                         : '—'}
                     </dd>
                   </div>
@@ -988,15 +999,15 @@ function SimulationContent({
                     replanningStatus === 'error' ||
                     replanningStatus === 'unavailable'
                   ) && (
-                    <button
-                      className="simulation-retry"
-                      type="button"
-                      onClick={() => void requestReplanning()}
-                      disabled={incidentSaving}
-                    >
-                      Reintentar evaluación
-                    </button>
-                  )}
+                      <button
+                        className="simulation-retry"
+                        type="button"
+                        onClick={() => void requestReplanning()}
+                        disabled={incidentSaving}
+                      >
+                        Reintentar evaluación
+                      </button>
+                    )}
 
                   <dl className="simulation-checks">
                     <div>
@@ -1014,8 +1025,8 @@ function SimulationContent({
                       <dd>
                         {traveledEstimates
                           ? `${formatNumber(
-                              traveledEstimates.consumptionWh,
-                            )} Wh`
+                            traveledEstimates.consumptionWh,
+                          )} Wh`
                           : 'No disponible'}
                       </dd>
                     </div>
