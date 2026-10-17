@@ -24,6 +24,8 @@ type Props = {
   simulationId: string
   coordinates: Coordinate[]
   onBlockedAreasChange: (areas: BlockedArea[]) => void
+  onBeforeCreate?: () => void
+  onCreatingChange?: (creating: boolean) => void
 }
 
 function isBlockedArea(value: unknown): value is BlockedArea {
@@ -56,7 +58,9 @@ function isIncident(value: unknown): value is Incident {
 
   return (
     typeof incident.id === 'string' &&
+    incident.id.trim().length > 0 &&
     typeof incident.simulationId === 'string' &&
+    incident.simulationId.trim().length > 0 &&
     incident.type === 'blockage' &&
     incident.source === 'simulation' &&
     isBlockedArea(incident.blockedArea) &&
@@ -88,7 +92,9 @@ async function readResponse(response: Response): Promise<unknown> {
 function createMiddleBlockage(
   coordinates: Coordinate[],
 ): BlockedArea {
-  const positions = coordinates.map(([lng, lat]) => L.latLng(lat, lng))
+  const positions = coordinates.map(
+    ([lng, lat]) => L.latLng(lat, lng),
+  )
 
   let totalDistance = 0
 
@@ -103,7 +109,7 @@ function createMiddleBlockage(
 
   if (totalDistance < 80) {
     throw new Error(
-      'Para esta prueba elegí un recorrido de al menos 80 metros.',
+      'Para generar este bloqueo deben quedar al menos 80 metros de recorrido.',
     )
   }
 
@@ -130,6 +136,7 @@ function createMiddleBlockage(
         previous.lat + (current.lat - previous.lat) * fraction,
         previous.lng + (current.lng - previous.lng) * fraction,
       )
+
       break
     }
 
@@ -137,15 +144,18 @@ function createMiddleBlockage(
   }
 
   if (!center) {
-    throw new Error('No se pudo ubicar el bloqueo sobre el recorrido.')
+    throw new Error(
+      'No se pudo ubicar el bloqueo sobre el recorrido pendiente.',
+    )
   }
 
-  // Aproximación local suficiente para la demo en Washington D. C.
+  // Zona de aproximadamente 20 × 20 metros.
+  // Aproximación local para la demo en Washington D. C.
   const halfHeight = 10 / 111320
   const halfWidth =
     10 / (111320 * Math.cos((center.lat * Math.PI) / 180))
 
-  const area = {
+  const area: BlockedArea = {
     south: center.lat - halfHeight,
     west: center.lng - halfWidth,
     north: center.lat + halfHeight,
@@ -168,7 +178,7 @@ function createMiddleBlockage(
     contains(destination)
   ) {
     throw new Error(
-      'El bloqueo quedaría sobre el origen o el destino. Probá otro recorrido.',
+      'El bloqueo quedaría sobre la posición actual o el destino. Probá otro recorrido.',
     )
   }
 
@@ -179,6 +189,8 @@ function SimulationIncidentSection({
   simulationId,
   coordinates,
   onBlockedAreasChange,
+  onBeforeCreate,
+  onCreatingChange,
 }: Props) {
   const [incident, setIncident] = useState<Incident | null>(null)
   const [saving, setSaving] = useState(false)
@@ -193,8 +205,13 @@ function SimulationIncidentSection({
     setError('')
 
     try {
+      // Pausa el robot y bloquea los controles antes de consultar
+      // o registrar el incidente.
+      onBeforeCreate?.()
+      onCreatingChange?.(true)
+
       // Recupera un incidente si una solicitud anterior llegó
-      // a guardarlo, pero se perdió la respuesta.
+      // a guardarlo, pero se perdió su respuesta.
       const listResponse = await fetch(
         `/api/incidents?simulationId=${encodeURIComponent(simulationId)}`,
         {
@@ -207,9 +224,13 @@ function SimulationIncidentSection({
       if (
         !Array.isArray(existing) ||
         !existing.every(isIncident) ||
-        existing.some((item) => item.simulationId !== simulationId)
+        existing.some(
+          (item) => item.simulationId !== simulationId,
+        )
       ) {
-        throw new Error('El servidor devolvió incidentes inválidos.')
+        throw new Error(
+          'El servidor devolvió incidentes inválidos.',
+        )
       }
 
       const previous = existing[0]
@@ -238,14 +259,24 @@ function SimulationIncidentSection({
 
       const body = await readResponse(response)
 
-      if (!isIncident(body) || body.simulationId !== simulationId) {
-        throw new Error('El servidor devolvió un incidente inválido.')
+      if (
+        !isIncident(body) ||
+        body.simulationId !== simulationId
+      ) {
+        throw new Error(
+          'El servidor devolvió un incidente inválido.',
+        )
       }
 
       setIncident(body)
+
+      // La pantalla inicia la replanificación mediante este callback.
       onBlockedAreasChange([body.blockedArea])
     } catch (caught) {
-      if (caught instanceof Error && caught.name === 'TimeoutError') {
+      if (
+        caught instanceof Error &&
+        caught.name === 'TimeoutError'
+      ) {
         setError(
           'La operación tardó demasiado. Reintentá para comprobar si el bloqueo se guardó.',
         )
@@ -261,6 +292,7 @@ function SimulationIncidentSection({
     } finally {
       pendingRef.current = false
       setSaving(false)
+      onCreatingChange?.(false)
     }
   }
 
@@ -270,8 +302,9 @@ function SimulationIncidentSection({
       <h2>Incidentes del recorrido</h2>
 
       <p>
-        Generá un bloqueo de prueba sobre la mitad del recorrido.
-        Se guardará y aparecerá en rojo sobre el mapa.
+        Generá un bloqueo sobre la mitad del recorrido pendiente.
+        El robot se pausará, el incidente aparecerá en el mapa y
+        se solicitará una alternativa mediante IA.
       </p>
 
       <button
@@ -294,15 +327,21 @@ function SimulationIncidentSection({
       )}
 
       {incident && (
-        <div className="simulation-incident-result" role="status">
+        <div
+          className="simulation-incident-result"
+          role="status"
+        >
           <p>
-            <strong>Bloqueo registrado.</strong> El recorrido original
-            atraviesa la zona marcada. Falta evaluar una alternativa.
+            <strong>Bloqueo registrado.</strong> Consultá el
+            resultado de la evaluación en el panel del recorrido.
           </p>
+
           <p>
             Vencimiento del registro:{' '}
-            {new Date(incident.expiresAt).toLocaleTimeString('es-AR')}
-            {' '}(hora local).
+            {new Date(incident.expiresAt).toLocaleTimeString(
+              'es-AR',
+            )}{' '}
+            (hora local).
           </p>
         </div>
       )}

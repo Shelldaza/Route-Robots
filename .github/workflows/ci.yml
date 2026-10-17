@@ -38,6 +38,9 @@ jobs:
 
       - name: Comprobar tipos y compilar
         run: npm run build
+        
+      - name: Probar estimaciones del recorrido
+        run: npm test
 
   backend:
     name: Validar backend
