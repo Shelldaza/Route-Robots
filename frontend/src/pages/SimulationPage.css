@@ -437,3 +437,26 @@
   margin-top: 16px;
   color: #a30000;
 }
+.simulation-page .simulation-estimates-note {
+  margin: 0;
+  padding: 0 20px 20px;
+  color: #666;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.simulation-page .simulation-card .simulation-estimates-note {
+  margin-top: 12px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.simulation-page .simulation-capacity-warning {
+  margin: 0 20px 20px;
+  padding: 14px 16px;
+  border-left: 3px solid #c9190b;
+  background: #fff1f0;
+  color: #a30000;
+  font-size: 14px;
+  line-height: 1.7;
+}

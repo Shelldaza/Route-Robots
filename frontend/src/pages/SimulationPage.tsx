@@ -9,6 +9,13 @@ import SimulationIncidentSection from '../components/SimulationIncidentSection'
 import type { BlockedArea } from '../components/SimulationIncidentSection'
 import './DemoPage.css'
 import './SimulationPage.css'
+import {
+  calculateRouteEstimates,
+  isRobotOperatingProfile,
+} from '../utils/route-estimates'
+import type {
+  RobotOperatingProfile,
+} from '../utils/route-estimates'
 
 type Point = {
   lat: number
@@ -26,14 +33,13 @@ type RouteResponse = {
 }
 
 type DeliveryDraft = {
-  robot: {
+  robot: RobotOperatingProfile & {
     id: string
     name: string
   }
   origin: Point
   destination: Point
 }
-
 type ToolExecution = {
   name: string
   success: boolean
@@ -92,6 +98,7 @@ function isDeliveryDraft(value: unknown): value is DeliveryDraft {
     robot.id.trim().length > 0 &&
     typeof robot.name === 'string' &&
     robot.name.trim().length > 0 &&
+    isRobotOperatingProfile(robot) &&
     isPoint(draft.origin) &&
     isPoint(draft.destination)
   )
@@ -232,6 +239,13 @@ function SimulationContent({
 
   const hasBlockages = blockedAreas.length > 0
   const displayedRoute = alternative ?? route
+  const estimates =
+    draft && displayedRoute
+      ? calculateRouteEstimates(
+          displayedRoute.distanceMeters,
+          draft.robot,
+        )
+      : null
 
   useEffect(() => {
     return () => {
@@ -680,43 +694,69 @@ function SimulationContent({
                   )}
                 </div>
 
-                <dl className="simulation-metrics">
-                  <div>
-                    <dt>
-                      {alternative
-                        ? 'Distancia alternativa'
-                        : 'Distancia original'}
-                    </dt>
-                    <dd>
-                      {displayedRoute.distanceMeters.toLocaleString(
-                        'es-AR',
-                        { maximumFractionDigits: 1 },
-                      )}{' '}
-                      m
-                    </dd>
-                  </div>
+<dl className="simulation-metrics">
+  <div>
+    <dt>
+      {alternative
+        ? 'Distancia alternativa'
+        : 'Distancia original'}
+    </dt>
+    <dd>
+      {displayedRoute.distanceMeters.toLocaleString('es-AR', {
+        maximumFractionDigits: 1,
+      })}{' '}
+      m
+    </dd>
+  </div>
 
-                  <div>
-                    <dt>Tiempo peatonal de referencia</dt>
-                    <dd>
-                      {(displayedRoute.durationSeconds / 60)
-                        .toLocaleString('es-AR', {
-                          maximumFractionDigits: 1,
-                        })}{' '}
-                      min
-                    </dd>
-                  </div>
+  <div>
+    <dt>Tiempo estimado del robot</dt>
+    <dd>
+      {estimates
+        ? `${(estimates.durationSeconds / 60).toLocaleString(
+            'es-AR',
+            { maximumFractionDigits: 1 },
+          )} min`
+        : '—'}
+    </dd>
+  </div>
 
-                  <div>
-                    <dt>Consumo estimado</dt>
-                    <dd>—</dd>
-                  </div>
+  <div>
+    <dt>Consumo estimado</dt>
+    <dd>
+      {estimates
+        ? `${estimates.consumptionWh.toLocaleString('es-AR', {
+            maximumFractionDigits: 1,
+          })} Wh`
+        : '—'}
+    </dd>
+  </div>
 
-                  <div>
-                    <dt>Capacidad de batería requerida</dt>
-                    <dd>—</dd>
-                  </div>
-                </dl>
+  <div>
+    <dt>Capacidad de batería requerida</dt>
+    <dd>
+      {estimates
+        ? `${estimates.requiredCapacityPercent.toLocaleString(
+            'es-AR',
+            { maximumFractionDigits: 1 },
+          )} %`
+        : '—'}
+    </dd>
+  </div>
+</dl>
+
+<p className="simulation-estimates-note">
+  Estimaciones a velocidad constante y consumo de referencia.
+  No incluyen pendientes, clima ni esperas. El porcentaje expresa
+  capacidad requerida, no batería restante.
+</p>
+
+{estimates && estimates.requiredCapacityPercent > 100 && (
+  <p className="simulation-capacity-warning" role="status">
+    El consumo estimado supera la capacidad nominal de batería
+    del robot, incluso considerando una carga inicial completa.
+  </p>
+)}
               </section>
 
               <aside className="simulation-side">
@@ -747,6 +787,13 @@ function SimulationContent({
                   {explanation && (
                     <p className="simulation-ai-explanation">
                       {explanation}
+                    </p>
+                  )}
+                  {explanation && (
+                    <p className="simulation-estimates-note">
+                      La duración informada por la IA corresponde al perfil
+                      peatonal del proveedor. Las métricas del mapa usan la
+                      velocidad operativa del robot.
                     </p>
                   )}
 
@@ -792,7 +839,13 @@ function SimulationContent({
                     </div>
                     <div>
                       <dt>Consumo del recorrido</dt>
-                      <dd>Sin estimar</dd>
+                      <dd>
+                        {estimates
+                          ? `${estimates.consumptionWh.toLocaleString('es-AR', {
+                              maximumFractionDigits: 1,
+                            })} Wh`
+                          : 'No disponible'}
+                      </dd>
                     </div>
                     <div>
                       <dt>Pendientes</dt>
