@@ -271,7 +271,8 @@ function SimulationIncidentSection({
 
       <p>
         Generá un bloqueo de prueba sobre la mitad del recorrido.
-        Se guardará y aparecerá en rojo sobre el mapa.
+        Se guardará, aparecerá en el mapa y activará la evaluación
+        de una alternativa mediante IA.
       </p>
 
       <button
@@ -296,8 +297,8 @@ function SimulationIncidentSection({
       {incident && (
         <div className="simulation-incident-result" role="status">
           <p>
-            <strong>Bloqueo registrado.</strong> El recorrido original
-            atraviesa la zona marcada. Falta evaluar una alternativa.
+          <strong>Bloqueo registrado.</strong> Consultá el resultado
+          de la evaluación en el panel del recorrido.
           </p>
           <p>
             Vencimiento del registro:{' '}

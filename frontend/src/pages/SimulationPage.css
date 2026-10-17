@@ -410,3 +410,30 @@
   height: 24px;
   object-fit: contain;
 }
+.simulation-page .simulation-legend .legend-original {
+  width: 22px;
+  height: 0;
+  border-top: 3px dashed #737373;
+  border-radius: 0;
+  background: transparent;
+}
+
+.simulation-page .simulation-card .simulation-ai-explanation {
+  margin-top: 16px;
+  padding: 14px;
+  border-left: 3px solid #0f766e;
+  background: #eef7f5;
+  color: #23443c;
+  line-height: 1.8;
+}
+
+.simulation-page .simulation-card .simulation-route-comparison {
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.simulation-page .simulation-card .simulation-incident-error {
+  margin-top: 16px;
+  color: #a30000;
+}
