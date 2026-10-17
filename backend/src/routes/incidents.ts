@@ -7,8 +7,21 @@ import {
     scenarioTimeSchema,
     simulationIdSchema,
 } from '../services/incidents';
+import {
+    INCIDENT_CATALOG,
+    INCIDENT_TYPES,
+} from '../config/incident-catalog';
 
 export const incidentsRouter = Router();
+
+incidentsRouter.get('/catalog', (_req, res) => {
+    res.status(200).json(
+        INCIDENT_TYPES.map((type) => ({
+            type,
+            ...INCIDENT_CATALOG[type],
+        })),
+    );
+});
 
 const listIncidentsSchema = z.object({
     simulationId: simulationIdSchema,

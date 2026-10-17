@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
 
+import IncidentReportForm from './IncidentReportForm'
+import type { IncidentPoint } from './IncidentReportForm'
+
 export type BlockedArea = {
   south: number
   west: number
@@ -13,7 +16,7 @@ type IncidentEffect =
   | 'caution'
   | 'blockage'
 
-type Incident = {
+export type Incident = {
   id: string
   simulationId: string
   type: string
@@ -27,7 +30,19 @@ type Incident = {
   expiresAt: string
 }
 
+// Las coordenadas de las rutas usan el orden GeoJSON:
+// [longitud, latitud].
 type Coordinate = [number, number]
+
+type IncidentStatus =
+  | 'scheduled'
+  | 'active'
+  | 'finished'
+
+type BlockageRecord = {
+  id: string
+  blockedArea: BlockedArea
+}
 
 type ChangeOptions = {
   requestReplanning: boolean
@@ -38,8 +53,17 @@ type Props = {
   coordinates: Coordinate[]
   scenarioTime: string
   getScenarioTime: () => string
+
+  // La página administra los clics y el marcador del mapa.
+  selectedPoint: IncidentPoint | null
+  selectingLocation: boolean
+  onSelectLocation: () => void
+  onCancelSelection: () => void
+
   onBeforeCreate?: () => void
   onCreatingChange?: (creating: boolean) => void
+  onActiveIncidentsChange: (incidents: Incident[]) => void
+
   onBlockedAreasChange: (
     areas: BlockedArea[],
     options: ChangeOptions,
@@ -57,6 +81,18 @@ const INCIDENT_LABELS: Record<string, string> = {
   scheduled_event: 'Evento programado',
   pothole: 'Bache',
   uneven_surface: 'Superficie irregular',
+}
+
+const EFFECT_LABELS: Record<IncidentEffect, string> = {
+  informational: 'Informativo',
+  caution: 'Precaución',
+  blockage: 'Bloqueo',
+}
+
+const STATUS_LABELS: Record<IncidentStatus, string> = {
+  scheduled: 'Programado',
+  active: 'Activo',
+  finished: 'Finalizado',
 }
 
 function isBlockedArea(value: unknown): value is BlockedArea {
@@ -89,6 +125,8 @@ function isDateString(value: unknown): value is string {
   )
 }
 
+// Las respuestas HTTP se validan antes de incorporarlas al estado.
+// Una anotación de TypeScript no valida los datos recibidos.
 function isIncident(value: unknown): value is Incident {
   if (!value || typeof value !== 'object') return false
 
@@ -96,6 +134,7 @@ function isIncident(value: unknown): value is Incident {
 
   return (
     typeof incident.id === 'string' &&
+    incident.id.length > 0 &&
     typeof incident.simulationId === 'string' &&
     typeof incident.type === 'string' &&
     Object.prototype.hasOwnProperty.call(
@@ -122,7 +161,7 @@ function isIncident(value: unknown): value is Incident {
     isDateString(incident.startsAt) &&
     isDateString(incident.expiresAt) &&
     Date.parse(incident.expiresAt) >
-      Date.parse(incident.startsAt)
+    Date.parse(incident.startsAt)
   )
 }
 
@@ -132,9 +171,9 @@ async function readResponse(response: Response): Promise<unknown> {
   if (!response.ok) {
     const message =
       body &&
-      typeof body === 'object' &&
-      'message' in body &&
-      typeof body.message === 'string'
+        typeof body === 'object' &&
+        'message' in body &&
+        typeof body.message === 'string'
         ? body.message
         : 'No se pudo completar la operación.'
 
@@ -185,10 +224,12 @@ async function fetchHistory(
   return validateIncidentList(body, simulationId)
 }
 
+// La vigencia depende del reloj del escenario, no de Date.now().
+// El instante de vencimiento ya pertenece al estado "finalizado".
 function getIncidentStatus(
   incident: Incident,
   nowMs: number,
-): 'scheduled' | 'active' | 'finished' {
+): IncidentStatus {
   if (Date.parse(incident.startsAt) > nowMs) {
     return 'scheduled'
   }
@@ -211,6 +252,8 @@ function formatDate(value: string): string {
   })
 }
 
+// La prueba rápida coloca el bloqueo en la mitad de la distancia
+// del recorrido, no en el elemento central del arreglo.
 function createMiddleBlockage(
   coordinates: Coordinate[],
 ): BlockedArea {
@@ -256,9 +299,9 @@ function createMiddleBlockage(
 
       center = L.latLng(
         previous.lat +
-          (current.lat - previous.lat) * fraction,
+        (current.lat - previous.lat) * fraction,
         previous.lng +
-          (current.lng - previous.lng) * fraction,
+        (current.lng - previous.lng) * fraction,
       )
 
       break
@@ -273,7 +316,7 @@ function createMiddleBlockage(
     )
   }
 
-  // Área aproximada de 20 × 20 metros para Washington D. C.
+  // Aproximación local de un área de 20 × 20 metros.
   const halfHeight = 10 / 111320
   const halfWidth =
     10 / (
@@ -297,6 +340,8 @@ function createMiddleBlockage(
     point.lng >= area.west &&
     point.lng <= area.east
 
+  // Evita crear una prueba sin salida por cubrir al robot
+  // o al punto al que debe llegar.
   if (
     !origin ||
     !destination ||
@@ -316,7 +361,7 @@ function getErrorMessage(error: unknown): string {
     error instanceof Error &&
     error.name === 'TimeoutError'
   ) {
-    return 'La operación tardó demasiado. Reintentá para comprobar si el bloqueo se guardó.'
+    return 'La operación tardó demasiado. Actualizá los incidentes para comprobar si el reporte se guardó.'
   }
 
   if (error instanceof TypeError) {
@@ -335,25 +380,41 @@ function SimulationIncidentSection({
   getScenarioTime,
   onBeforeCreate,
   onCreatingChange,
+  onActiveIncidentsChange,
   onBlockedAreasChange,
+  selectedPoint,
+  selectingLocation,
+  onSelectLocation,
+  onCancelSelection,
 }: Props) {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [savingQuickTest, setSavingQuickTest] = useState(false)
+  const [savingManualReport, setSavingManualReport] = useState(false)
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
+  const activeIncidentsCallbackRef = useRef(onActiveIncidentsChange)
 
+  useEffect(() => {
+    activeIncidentsCallbackRef.current = onActiveIncidentsChange
+  }, [onActiveIncidentsChange])
+
+  // El ref impide dos solicitudes rápidas antes de que React
+  // llegue a renderizar el botón deshabilitado.
   const pendingRef = useRef(false)
 
   const changeCallbackRef = useRef(onBlockedAreasChange)
   const previousBlockagesRef = useRef('[]')
 
+  const saving = savingQuickTest || savingManualReport
+  const busy = loading || saving
+
+  // Mantiene el callback actualizado sin volver a notificar
+  // los mismos bloqueos por cada render del padre.
   useEffect(() => {
     changeCallbackRef.current = onBlockedAreasChange
   }, [onBlockedAreasChange])
 
-  // Descarga el historial al montar o al reintentar.
-  // No consulta la API en cada tick del reloj.
   useEffect(() => {
     const controller = new AbortController()
 
@@ -392,6 +453,8 @@ function SimulationIncidentSection({
 
   const nowMs = Date.parse(scenarioTime)
 
+  // El historial se conserva completo. Los estados se derivan
+  // localmente sin consultar el backend en cada tick del reloj.
   const activeIncidents = incidents.filter(
     (incident) =>
       getIncidentStatus(incident, nowMs) === 'active',
@@ -401,7 +464,31 @@ function SimulationIncidentSection({
     (incident) => incident.effect === 'blockage',
   )
 
-  // Una clave estable evita notificar al padre en cada tick.
+  const finishedCount = incidents.filter(
+    (incident) =>
+      getIncidentStatus(incident, nowMs) === 'finished',
+  ).length
+
+  const scheduledCount =
+    incidents.length -
+    activeIncidents.length -
+    finishedCount
+
+  // Solo importan el identificador y la geometría para detectar
+  // cambios en las áreas bloqueadas.
+  // El reloj cambia continuamente, pero el mapa solo necesita actualizarse
+  // cuando cambia el conjunto de incidentes activos o sus datos.
+  const activeIncidentsKey = JSON.stringify(
+    [...activeIncidents].sort((first, second) =>
+      first.id.localeCompare(second.id),
+    ),
+  )
+
+  useEffect(() => {
+    const current = JSON.parse(activeIncidentsKey) as Incident[]
+
+    activeIncidentsCallbackRef.current(current)
+  }, [activeIncidentsKey])
   const blockagesKey = JSON.stringify(
     activeBlockages
       .map((incident) => ({
@@ -418,25 +505,20 @@ function SimulationIncidentSection({
 
     if (previousKey === blockagesKey) return
 
-    type BlockageRecord = {
-      id: string
-      blockedArea: BlockedArea
-    }
+    // Estas cadenas se generan dentro del componente.
+    // Los datos de la API ya fueron validados al recibirlos.
+    const previous =
+      JSON.parse(previousKey) as BlockageRecord[]
 
-    const previous = JSON.parse(
-      previousKey,
-    ) as BlockageRecord[]
-
-    const current = JSON.parse(
-      blockagesKey,
-    ) as BlockageRecord[]
+    const current =
+      JSON.parse(blockagesKey) as BlockageRecord[]
 
     const previousRecords = new Set(
       previous.map((record) => JSON.stringify(record)),
     )
 
-    // Un bloqueo nuevo o un área modificada requiere evaluar.
-    // La desaparición de un bloqueo no solicita IA.
+    // Se solicita evaluar cuando aparece un bloqueo o cambia
+    // su área. Un vencimiento solo actualiza el mapa.
     const requestReplanning = current.some(
       (record) =>
         !previousRecords.has(JSON.stringify(record)),
@@ -450,29 +532,48 @@ function SimulationIncidentSection({
     )
   }, [blockagesKey])
 
+  // El formulario espera esta promesa para distinguir entre
+  // un fallo al guardar y un fallo al actualizar la pantalla.
+  async function refreshHistory(): Promise<void> {
+    const history = await fetchHistory(
+      simulationId,
+      getScenarioTime(),
+      AbortSignal.timeout(40000),
+    )
+
+    setIncidents(history)
+    setError('')
+  }
+
+  function handleManualCreatingChange(creating: boolean) {
+    setSavingManualReport(creating)
+    onCreatingChange?.(creating)
+  }
+
   async function simulateBlockage() {
     if (
       pendingRef.current ||
-      loading ||
+      busy ||
       activeBlockages.length > 0
     ) {
       return
     }
 
     pendingRef.current = true
-    setSaving(true)
+    setSavingQuickTest(true)
     setError('')
 
     try {
       onBeforeCreate?.()
       onCreatingChange?.(true)
 
-      // El padre ya pausó el escenario.
+      // Se toma la fecha después de pausar el escenario.
       const startsAt = getScenarioTime()
       const atMs = Date.parse(startsAt)
 
-      // Recupera un bloqueo activo si una respuesta anterior
-      // se perdió después de guardarlo.
+      // Antes de insertar, recupera un posible bloqueo cuya
+      // respuesta se haya perdido en una solicitud anterior.
+      // Esto no reemplaza una clave de idempotencia del backend.
       const history = await fetchHistory(
         simulationId,
         startsAt,
@@ -528,18 +629,16 @@ function SimulationIncidentSection({
       setError(getErrorMessage(caught))
     } finally {
       pendingRef.current = false
-      setSaving(false)
+      setSavingQuickTest(false)
       onCreatingChange?.(false)
     }
   }
 
-  const finishedCount = incidents.filter(
-    (incident) =>
-      getIncidentStatus(incident, nowMs) === 'finished',
-  ).length
-
   return (
-    <section className="simulation-card simulation-incidents">
+    <section
+      className="simulation-card simulation-incidents"
+      aria-busy={busy}
+    >
       <p className="simulation-eyebrow">
         ESCENARIO DE PRUEBA
       </p>
@@ -547,51 +646,76 @@ function SimulationIncidentSection({
       <h2>Incidentes del escenario</h2>
 
       <p>
-        Generá un bloqueo sobre la mitad del recorrido
-        pendiente. Durará 15 minutos del escenario y
-        activará la evaluación de una alternativa.
+        Reportá un incidente seleccionando su tipo y
+        ubicación. La descripción y la duración tienen
+        valores predeterminados que podés editar.
       </p>
 
-      <button
-        className="simulation-incident-button"
-        type="button"
-        onClick={() => void simulateBlockage()}
-        disabled={
-          loading ||
-          saving ||
-          activeBlockages.length > 0
-        }
-      >
-        {loading
-          ? 'Cargando incidentes…'
-          : saving
-            ? 'Registrando bloqueo…'
-            : activeBlockages.length > 0
-              ? 'Hay un bloqueo activo'
-              : 'Simular bloqueo en el recorrido'}
-      </button>
+      <IncidentReportForm
+        simulationId={simulationId}
+        point={selectedPoint}
+        selecting={selectingLocation}
+        disabled={busy}
+        getScenarioTime={getScenarioTime}
+        onSelectLocation={onSelectLocation}
+        onCancelSelection={onCancelSelection}
+        onBeforeCreate={() => onBeforeCreate?.()}
+        onCreatingChange={handleManualCreatingChange}
+        onCreated={refreshHistory}
+      />
+
+      {/* Se conserva como herramienta de prueba mientras
+          el formulario manual incorpora todas las opciones. */}
+      <details className="simulation-quick-test">
+        <summary>Prueba rápida de bloqueo</summary>
+
+        <p>
+          Coloca un bloqueo de 15 minutos en la mitad
+          del recorrido pendiente.
+        </p>
+
+        <button
+          className="simulation-incident-button"
+          type="button"
+          onClick={() => void simulateBlockage()}
+          disabled={
+            busy ||
+            activeBlockages.length > 0
+          }
+        >
+          {loading
+            ? 'Cargando incidentes…'
+            : savingQuickTest
+              ? 'Registrando bloqueo…'
+              : activeBlockages.length > 0
+                ? 'Hay un bloqueo activo'
+                : 'Simular bloqueo en el recorrido'}
+        </button>
+      </details>
 
       {error && (
-        <>
-          <p
-            className="simulation-incident-error"
-            role="alert"
-          >
-            {error}
-          </p>
-
-          <button
-            className="simulation-retry"
-            type="button"
-            onClick={() =>
-              setReloadKey((current) => current + 1)
-            }
-            disabled={loading || saving}
-          >
-            Actualizar incidentes
-          </button>
-        </>
+        <p
+          className="simulation-incident-error"
+          role="alert"
+        >
+          {error}
+        </p>
       )}
+
+      {/* Disponible también sin error para recuperar reportes
+          creados desde otra petición o con respuesta perdida. */}
+      <button
+        className="simulation-retry"
+        type="button"
+        onClick={() =>
+          setReloadKey((current) => current + 1)
+        }
+        disabled={busy}
+      >
+        {loading
+          ? 'Actualizando incidentes…'
+          : 'Actualizar incidentes'}
+      </button>
 
       <div
         className="simulation-incident-result"
@@ -600,6 +724,9 @@ function SimulationIncidentSection({
         <p>
           <strong>Activos:</strong>{' '}
           {activeIncidents.length}
+          {' · '}
+          <strong>Programados:</strong>{' '}
+          {scheduledCount}
           {' · '}
           <strong>Finalizados:</strong>{' '}
           {finishedCount}
@@ -624,13 +751,6 @@ function SimulationIncidentSection({
               nowMs,
             )
 
-            const statusLabel =
-              status === 'active'
-                ? 'Activo'
-                : status === 'scheduled'
-                  ? 'Programado'
-                  : 'Finalizado'
-
             return (
               <div
                 className="simulation-incident-result"
@@ -640,10 +760,16 @@ function SimulationIncidentSection({
                   <strong>
                     {INCIDENT_LABELS[incident.type]}
                   </strong>
-                  {' · '}{statusLabel}
+                  {' · '}
+                  {STATUS_LABELS[status]}
                 </p>
 
                 <p>{incident.description}</p>
+
+                <p>
+                  Efecto:{' '}
+                  {EFFECT_LABELS[incident.effect]}
+                </p>
 
                 <p>
                   Informante:{' '}

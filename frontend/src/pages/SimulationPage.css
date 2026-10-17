@@ -473,3 +473,53 @@
   font-size: 13px;
   line-height: 1.7;
 }
+.simulation-page .incident-report-form {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid #dedede;
+}
+
+.simulation-page .incident-report-form fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.simulation-page .incident-report-form label {
+  display: block;
+  margin-top: 16px;
+  color: #333;
+  font-size: 14px;
+}
+
+.simulation-page .incident-report-form select,
+.simulation-page .incident-report-form input,
+.simulation-page .incident-report-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 11px 12px;
+  border: 1px solid #aaa;
+  border-radius: 0;
+  background: #fff;
+  color: #151515;
+  font: inherit;
+}
+
+.simulation-page .incident-report-form textarea {
+  resize: vertical;
+}
+
+.simulation-page .incident-report-form details {
+  margin-top: 20px;
+}
+
+.simulation-page .incident-report-form summary {
+  cursor: pointer;
+}
+
+.simulation-page .incident-report-form :focus-visible {
+  outline: 3px solid #0066cc;
+  outline-offset: 3px;
+}

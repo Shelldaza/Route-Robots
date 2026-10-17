@@ -8,7 +8,12 @@ import brandName from '../assets/routerobots-name.jpg'
 import blockageIconUrl from '../assets/incidents/blockage.png'
 
 import SimulationIncidentSection from '../components/SimulationIncidentSection'
-import type { BlockedArea } from '../components/SimulationIncidentSection'
+import type {
+  BlockedArea,
+  Incident,
+} from '../components/SimulationIncidentSection'
+import { getIncidentAppearance } from '../utils/incident-icons'
+import type { IncidentPoint } from '../components/IncidentReportForm'
 
 import {
   calculateRouteEstimates,
@@ -90,6 +95,8 @@ function isPoint(value: unknown): value is Point {
   )
 }
 
+// El estado de navegación puede faltar al abrir la URL directamente.
+// Validarlo evita iniciar una entrega con datos incompletos.
 function isDeliveryDraft(value: unknown): value is DeliveryDraft {
   if (!value || typeof value !== 'object') return false
 
@@ -235,6 +242,10 @@ function SimulationContent({
   navigationState: unknown
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<L.Map | null>(null)
+  // Leaflet conserva su listener entre renders; la referencia permite que
+  // lea el modo de selección actual sin reconstruir el mapa en cada clic.
+  const selectingLocationRef = useRef(false)
   const blockedLayerRef = useRef<L.LayerGroup | null>(null)
   const robotMarkerRef = useRef<L.Marker | null>(null)
   const remainingRouteRef = useRef<L.Polyline | null>(null)
@@ -262,9 +273,15 @@ function SimulationContent({
   const [blockedAreas, setBlockedAreas] =
     useState<BlockedArea[]>([])
 
+  const [activeIncidents, setActiveIncidents] =
+    useState<Incident[]>([])
+
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const [incidentSaving, setIncidentSaving] = useState(false)
+  const [selectingLocation, setSelectingLocation] = useState(false)
+  const [selectedIncidentPoint, setSelectedIncidentPoint] =
+    useState<IncidentPoint | null>(null)
 
   const [replanningStatus, setReplanningStatus] =
     useState<ReplanningStatus>('idle')
@@ -278,6 +295,8 @@ function SimulationContent({
   const [comparisonDistance, setComparisonDistance] =
     useState<number | null>(null)
 
+  // El escenario puede avanzar sin un encargo en marcha. El tiempo del
+  // robot, en cambio, mide únicamente el desplazamiento de esta entrega.
   const clock = useScenarioClock()
 
   const motion = useRobotSimulation(
@@ -308,13 +327,21 @@ function SimulationContent({
     incidentSaving ||
     replanningStatus === 'loading'
 
+  // Elegir una ubicación mantiene estable la posición y la hora que
+  // se usarán al registrar el incidente y evaluar un posible desvío.
+  const controlsLocked = evaluationBusy || selectingLocation
+
   const movementBlocked =
-    evaluationBusy ||
+    controlsLocked ||
     (hasBlockages && replanningStatus !== 'ready')
 
   const waitingDisabled =
-    evaluationBusy ||
+    controlsLocked ||
     motion.status === 'running'
+
+  useEffect(() => {
+    selectingLocationRef.current = selectingLocation && !evaluationBusy
+  }, [selectingLocation, evaluationBusy])
 
   useEffect(() => {
     return () => {
@@ -392,6 +419,17 @@ function SimulationContent({
       15,
     )
 
+    mapRef.current = map
+
+    map.on('click', (event: L.LeafletMouseEvent) => {
+      if (!selectingLocationRef.current) return
+
+      setSelectedIncidentPoint({
+        lat: event.latlng.lat,
+        lng: event.latlng.lng,
+      })
+    })
+
     L.tileLayer(
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       {
@@ -462,6 +500,7 @@ function SimulationContent({
     })
 
     return () => {
+      mapRef.current = null
       remainingRouteRef.current = null
       originMarkerRef.current = null
       robotMarkerRef.current = null
@@ -471,12 +510,71 @@ function SimulationContent({
   }, [route, alternative])
 
   useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    const container = map.getContainer()
+    const previousCursor = container.style.cursor
+    container.style.cursor = selectingLocation && !evaluationBusy
+      ? 'crosshair'
+      : previousCursor
+
+    // La vista previa no pertenece a la capa de incidentes guardados.
+    // Cancelarla elimina solo el borrador, sin modificar el escenario.
+    let preview: L.Marker | null = null
+
+    if (selectingLocation && selectedIncidentPoint) {
+      preview = L.marker(selectedIncidentPoint, {
+        icon: L.icon({
+          iconUrl: blockageIconUrl,
+          iconSize: [52, 52],
+          iconAnchor: [26, 26],
+          tooltipAnchor: [0, -26],
+          className: 'simulation-blockage-icon',
+        }),
+        draggable: !evaluationBusy,
+        bubblingMouseEvents: false,
+        alt: 'Ubicación del incidente sin guardar',
+        title: 'Arrastrá para ajustar la ubicación',
+        zIndexOffset: 1500,
+      })
+        .bindTooltip('Nuevo incidente — sin guardar', {
+          permanent: true,
+          direction: 'top',
+        })
+        .addTo(map)
+
+      preview.on('dragend', (event: L.DragEndEvent) => {
+        if (!selectingLocationRef.current) return
+        const marker = event.target as L.Marker
+        const point = marker.getLatLng()
+        setSelectedIncidentPoint({ lat: point.lat, lng: point.lng })
+      })
+    }
+
+    return () => {
+      preview?.remove()
+      container.style.cursor = previousCursor
+    }
+  }, [
+    selectingLocation,
+    selectedIncidentPoint,
+    evaluationBusy,
+    route,
+    alternative,
+  ])
+
+  useEffect(() => {
+    // Actualizamos las capas existentes para no perder el zoom ni el
+    // desplazamiento del mapa en cada fotograma de la animación.
     if (motion.position) {
       const [lng, lat] = motion.position
 
       robotMarkerRef.current?.setLatLng([lat, lng])
     }
 
+    // Al llegar se vacía la línea: el muestreo final puede conservar
+    // coordenadas repetidas del destino, aunque ya no quede recorrido.
     const remainingPositions: L.LatLngTuple[] =
       motion.status === 'completed'
         ? []
@@ -506,45 +604,88 @@ function SimulationContent({
 
   useEffect(() => {
     const layer = blockedLayerRef.current
-
     if (!layer) return
 
     layer.clearLayers()
 
-    const blockageIcon = L.icon({
-      iconUrl: blockageIconUrl,
-      iconSize: [52, 52],
-      iconAnchor: [26, 26],
-      tooltipAnchor: [0, -26],
-      className: 'simulation-blockage-icon',
-    })
-
-    blockedAreas.forEach((area) => {
+    // La representación incluye precauciones e información, mientras
+    // que blockedAreas sigue reservada para los desvíos por bloqueos.
+    activeIncidents.forEach((incident) => {
+      const appearance = getIncidentAppearance(incident.type)
+      const area = incident.blockedArea
       const center: L.LatLngTuple = [
         (area.south + area.north) / 2,
         (area.west + area.east) / 2,
       ]
 
+      const icon = L.icon({
+        iconUrl: appearance.iconUrl,
+        iconSize: [48, 48],
+        iconAnchor: [24, 24],
+        tooltipAnchor: [0, -24],
+        className: 'simulation-blockage-icon',
+      })
+
+      const effectLabel = incident.effect === 'blockage'
+        ? 'Paso bloqueado'
+        : incident.effect === 'caution'
+          ? 'Circular con precaución'
+          : 'Información del recorrido'
+
+      // Leaflet interpreta las cadenas como HTML. Usar textContent
+      // permite mostrar descripciones del usuario como texto literal.
+      const tooltip = document.createElement('div')
+      const heading = document.createElement('strong')
+      heading.textContent = appearance.label
+
+      const effect = document.createElement('div')
+      effect.textContent = effectLabel
+
+      const description = document.createElement('div')
+      description.textContent = incident.description
+
+      const reporter = document.createElement('div')
+      reporter.textContent =
+        `Informó: ${incident.reporterName ?? 'Sin identificar'}`
+
+      const expiration = document.createElement('div')
+      expiration.textContent =
+        `Vigente hasta: ${new Date(incident.expiresAt).toLocaleString('es-AR')}`
+
+      tooltip.append(heading, effect, description, reporter, expiration)
+
       L.marker(center, {
-        icon: blockageIcon,
-        alt: 'Paso bloqueado',
-        title: 'Bloqueo simulado',
+        icon,
+        alt: appearance.label,
+        title: appearance.label,
         keyboard: true,
         riseOnHover: true,
       })
-        .bindTooltip(
-          'Paso bloqueado — incidente simulado',
-          {
-            direction: 'top',
-          },
-        )
+        .bindTooltip(tooltip, { direction: 'top' })
         .addTo(layer)
     })
-  }, [route, alternative, blockedAreas])
+  }, [route, alternative, activeIncidents])
 
   function pauseScenarioAndRobot() {
     motion.pause()
     clock.pause()
+  }
+
+  function selectIncidentLocation() {
+    if (evaluationBusy || replanningPendingRef.current) return
+
+    pauseScenarioAndRobot()
+    setSelectedIncidentPoint(null)
+    selectingLocationRef.current = true
+    setSelectingLocation(true)
+    mapRef.current?.getContainer().scrollIntoView({ block: 'center' })
+  }
+
+  function cancelIncidentSelection() {
+    selectingLocationRef.current = false
+    setSelectingLocation(false)
+    setSelectedIncidentPoint(null)
+    // No reanudamos automáticamente: el usuario decide cuándo continuar.
   }
 
   function changeSimulationSpeed(value: number) {
@@ -554,7 +695,7 @@ function SimulationContent({
 
   function toggleScenarioClock() {
     if (
-      evaluationBusy ||
+      controlsLocked ||
       replanningPendingRef.current
     ) {
       return
@@ -610,6 +751,8 @@ function SimulationContent({
 
     pauseScenarioAndRobot()
 
+    // Toda la evaluación usa una misma hora y posición, capturadas
+    // después de pausar; el desvío empieza donde está el robot ahora.
     const scenarioTime = clock.getScenarioTime()
     const current = motion.getSnapshot()
 
@@ -664,6 +807,8 @@ function SimulationContent({
       setToolCalls(body.toolCalls)
 
       if (body.status === 'alternative_ready') {
+        // Cambia el tramo pendiente y conserva la distancia y el tiempo
+        // acumulados; la nueva ruta queda pausada hasta reanudarla.
         loadRoute(body.route, true)
         setAlternative(body.route)
         setReplanningStatus('ready')
@@ -713,6 +858,9 @@ function SimulationContent({
   }
   function handleCreatingChange(creating: boolean) {
     if (creating) {
+      // El clic que guarda no debe permitir mover el borrador mientras
+      // la petición está en curso, ni siquiera antes del próximo render.
+      selectingLocationRef.current = false
       pauseScenarioAndRobot()
     }
 
@@ -744,18 +892,20 @@ function SimulationContent({
 
   const stateLabel =
     incidentSaving
-      ? 'Registrando bloqueo…'
+      ? 'Registrando incidente…'
       : replanningStatus === 'loading'
         ? 'Evaluando desvío…'
-        : motion.status === 'completed'
-          ? 'Destino alcanzado'
-          : hasBlockages && replanningStatus !== 'ready'
-            ? 'Bloqueo pendiente de resolución'
-            : motion.status === 'running'
-              ? 'En recorrido'
-              : motion.status === 'paused'
-                ? 'Recorrido pausado'
-                : 'Listo para iniciar'
+        : selectingLocation
+          ? 'Seleccionando ubicación del incidente'
+          : motion.status === 'completed'
+            ? 'Destino alcanzado'
+            : hasBlockages && replanningStatus !== 'ready'
+              ? 'Bloqueo pendiente de resolución'
+              : motion.status === 'running'
+                ? 'En recorrido'
+                : motion.status === 'paused'
+                  ? 'Recorrido pausado'
+                  : 'Listo para iniciar'
 
   const evaluationTitle =
     replanningStatus === 'loading'
@@ -905,7 +1055,7 @@ function SimulationContent({
                 <button
                   type="button"
                   onClick={toggleScenarioClock}
-                  disabled={evaluationBusy}
+                  disabled={controlsLocked}
                 >
                   {clock.running
                     ? 'Pausar escenario'
@@ -923,7 +1073,7 @@ function SimulationContent({
                         Number(event.target.value),
                       )
                     }
-                    disabled={evaluationBusy}
+                    disabled={controlsLocked}
                   >
                     <option value="1">×1</option>
                     <option value="10">×10</option>
@@ -1003,7 +1153,7 @@ function SimulationContent({
                         Number(event.target.value),
                       )
                     }
-                    disabled={evaluationBusy}
+                    disabled={controlsLocked}
                   >
                     <option value="1">×1</option>
                     <option value="10">×10</option>
@@ -1081,7 +1231,7 @@ function SimulationContent({
                 <div
                   className="simulation-map"
                   ref={containerRef}
-                  aria-label="Mapa del robot, el recorrido y los bloqueos"
+                  aria-label="Mapa del robot, el recorrido y los incidentes"
                 />
 
                 <div
@@ -1129,16 +1279,21 @@ function SimulationContent({
                     </span>
                   )}
 
-                  {hasBlockages && (
-                    <span>
-                      <img
-                        className="legend-blockage-image"
-                        src={blockageIconUrl}
-                        alt=""
-                      />
-                      Bloqueo simulado
-                    </span>
-                  )}
+                  {[...new Set(activeIncidents.map((incident) => incident.type))]
+                    .map((type) => {
+                      const appearance = getIncidentAppearance(type)
+
+                      return (
+                        <span key={type}>
+                          <img
+                            className="legend-blockage-image"
+                            src={appearance.iconUrl}
+                            alt=""
+                          />
+                          {appearance.label}
+                        </span>
+                      )
+                    })}
                 </div>
 
                 <dl className="simulation-metrics">
@@ -1443,9 +1598,14 @@ function SimulationContent({
                   ? motion.remainingCoordinates
                   : route.geometry.coordinates
               }
+              selectedPoint={selectedIncidentPoint}
+              selectingLocation={selectingLocation}
+              onSelectLocation={selectIncidentLocation}
+              onCancelSelection={cancelIncidentSelection}
               onBeforeCreate={pauseScenarioAndRobot}
               onCreatingChange={handleCreatingChange}
               onBlockedAreasChange={handleBlockedAreasChange}
+              onActiveIncidentsChange={setActiveIncidents}
             />
           </>
         )}
