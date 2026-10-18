@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
+import { getRouteBlockages } from '../utils/route-geometry'
 
 import IncidentReportForm from './IncidentReportForm'
 import type { IncidentPoint } from './IncidentReportForm'
@@ -460,9 +461,9 @@ function SimulationIncidentSection({
       getIncidentStatus(incident, nowMs) === 'active',
   )
 
-  const activeBlockages = activeIncidents.filter(
-    (incident) => incident.effect === 'blockage',
-  )
+  // Se recalcula también al avanzar o cargar un desvío: un bloqueo
+  // puede seguir activo en el mapa y dejar de afectar al tramo pendiente.
+  const routeBlockages = getRouteBlockages(coordinates, activeIncidents)
 
   const finishedCount = incidents.filter(
     (incident) =>
@@ -474,8 +475,6 @@ function SimulationIncidentSection({
     activeIncidents.length -
     finishedCount
 
-  // Solo importan el identificador y la geometría para detectar
-  // cambios en las áreas bloqueadas.
   // El reloj cambia continuamente, pero el mapa solo necesita actualizarse
   // cuando cambia el conjunto de incidentes activos o sus datos.
   const activeIncidentsKey = JSON.stringify(
@@ -489,8 +488,11 @@ function SimulationIncidentSection({
 
     activeIncidentsCallbackRef.current(current)
   }, [activeIncidentsKey])
+  // La clave omite los bloqueos lejanos y los que quedaron atrás.
+  // Aunque las coordenadas cambien en cada fotograma, solo notificamos
+  // si cambia el conjunto de bloqueos que cruza el recorrido pendiente.
   const blockagesKey = JSON.stringify(
-    activeBlockages
+    routeBlockages
       .map((incident) => ({
         id: incident.id,
         blockedArea: incident.blockedArea,
@@ -517,8 +519,8 @@ function SimulationIncidentSection({
       previous.map((record) => JSON.stringify(record)),
     )
 
-    // Se solicita evaluar cuando aparece un bloqueo o cambia
-    // su área. Un vencimiento solo actualiza el mapa.
+    // Un bloqueo que pasa a afectar al recorrido requiere evaluación.
+    // Retirarlo por vencimiento o por cargar un desvío no solicita IA.
     const requestReplanning = current.some(
       (record) =>
         !previousRecords.has(JSON.stringify(record)),
@@ -554,7 +556,8 @@ function SimulationIncidentSection({
     if (
       pendingRef.current ||
       busy ||
-      activeBlockages.length > 0
+      coordinates.length < 2 ||
+      routeBlockages.length > 0
     ) {
       return
     }
@@ -582,11 +585,12 @@ function SimulationIncidentSection({
 
       setIncidents(history)
 
-      const existingBlockage = history.find(
-        (incident) =>
-          incident.effect === 'blockage' &&
+      const existingBlockage = getRouteBlockages(
+        coordinates,
+        history.filter((incident) =>
           getIncidentStatus(incident, atMs) === 'active',
-      )
+        ),
+      )[0]
 
       if (existingBlockage) return
 
@@ -680,16 +684,19 @@ function SimulationIncidentSection({
           onClick={() => void simulateBlockage()}
           disabled={
             busy ||
-            activeBlockages.length > 0
+            coordinates.length < 2 ||
+            routeBlockages.length > 0
           }
         >
           {loading
             ? 'Cargando incidentes…'
             : savingQuickTest
               ? 'Registrando bloqueo…'
-              : activeBlockages.length > 0
-                ? 'Hay un bloqueo activo'
-                : 'Simular bloqueo en el recorrido'}
+              : routeBlockages.length > 0
+                ? 'Hay un bloqueo sobre el recorrido'
+                : coordinates.length < 2
+                  ? 'Sin recorrido pendiente'
+                  : 'Simular bloqueo en el recorrido'}
         </button>
       </details>
 
@@ -724,6 +731,9 @@ function SimulationIncidentSection({
         <p>
           <strong>Activos:</strong>{' '}
           {activeIncidents.length}
+          {' · '}
+          <strong>Bloqueos sobre el recorrido:</strong>{' '}
+          {routeBlockages.length}
           {' · '}
           <strong>Programados:</strong>{' '}
           {scheduledCount}

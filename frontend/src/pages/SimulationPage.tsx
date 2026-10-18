@@ -303,7 +303,7 @@ function SimulationContent({
     draft?.robot.speedKmh ?? 0,
   )
 
-  const { loadRoute } = motion
+  const { loadRoute, getSnapshot } = motion
 
   const hasBlockages = blockedAreas.length > 0
   const displayedRoute = alternative ?? route
@@ -482,7 +482,13 @@ function SimulationContent({
       className: 'simulation-robot-icon',
     })
 
-    robotMarkerRef.current = L.marker(origin, {
+    const currentPosition = getSnapshot().position
+
+    const markerPosition: L.LatLngTuple = currentPosition
+      ? [currentPosition[1], currentPosition[0]]
+      : origin
+
+    robotMarkerRef.current = L.marker(markerPosition, {
       icon: robotIcon,
       alt: 'Robot simulado',
       title: 'Robot simulado',
@@ -507,7 +513,7 @@ function SimulationContent({
       blockedLayerRef.current = null
       map.remove()
     }
-  }, [route, alternative])
+  }, [route, alternative, getSnapshot])
 
   useEffect(() => {
     const map = mapRef.current
@@ -847,8 +853,9 @@ function SimulationContent({
       return
     }
 
-    // Si finalizaron todos los bloqueos, permite continuar
-    // incluso si la evaluación anterior había fallado.
+    // Si ningún bloqueo cruza el tramo pendiente, permite continuar
+    // aunque la evaluación anterior haya fallado. Los incidentes pueden
+    // seguir activos en el mapa, fuera del recorrido actual.
     if (areas.length === 0) {
       setReplanningError('')
       setReplanningStatus(
@@ -1517,7 +1524,7 @@ function SimulationContent({
                     </div>
 
                     <div>
-                      <dt>Bloqueos registrados</dt>
+                      <dt>Bloqueos sobre el recorrido</dt>
                       <dd>{blockedAreas.length}</dd>
                     </div>
 
@@ -1594,9 +1601,9 @@ function SimulationContent({
               scenarioTime={clock.scenarioTime}
               getScenarioTime={clock.getScenarioTime}
               coordinates={
-                motion.remainingCoordinates.length >= 2
-                  ? motion.remainingCoordinates
-                  : route.geometry.coordinates
+                motion.status === 'completed'
+                  ? []
+                  : motion.remainingCoordinates
               }
               selectedPoint={selectedIncidentPoint}
               selectingLocation={selectingLocation}
