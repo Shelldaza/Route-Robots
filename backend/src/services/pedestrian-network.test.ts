@@ -20,6 +20,32 @@ const origin = { lat: 0, lng: 0.0008 };
 const destination = { lat: 0, lng: 0.002 };
 
 describe('Red peatonal y desvíos', () => {
+    it('reutiliza el grafo sin conservar bloqueos de una búsqueda anterior', () => {
+        const detour = routeOnPedestrianNetwork(
+            {
+                origin,
+                destination,
+                blockedSegmentIds: ['bc'],
+                strictOrigin: true,
+            },
+            network,
+        );
+
+        const free = routeOnPedestrianNetwork(
+            {
+                origin,
+                destination,
+                strictOrigin: true,
+            },
+            network,
+        );
+
+        expect(detour.segmentIds).not.toContain('bc');
+        expect(free.segmentIds).toContain('bc');
+
+        expect(free.distanceMeters)
+            .toBeLessThan(detour.distanceMeters);
+    });
     it('no cruza de vereda por una conexión que no está mapeada', () => {
         const route = routeOnPedestrianNetwork({
             origin: { lat: 0, lng: 0.001 },

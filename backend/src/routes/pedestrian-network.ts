@@ -53,7 +53,7 @@ pedestrianNetworkRouter.get('/', (req, res) => {
         return;
     }
 
-    const visible = queryPedestrianSegments(bounds);
+    const visible = queryPedestrianSegments(bounds, 12001);
 
     if (visible.length > 12000) {
         res.status(413).json({

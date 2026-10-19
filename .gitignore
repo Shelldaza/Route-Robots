@@ -2,3 +2,4 @@ node_modules/
 .env
 /backend/src/data/dc-pedestrian-network.json
 /backend/src/data/*.tmp
+/backend/src/data/*.bin

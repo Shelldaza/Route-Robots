@@ -65,6 +65,9 @@ jobs:
 
       - name: Instalar dependencias
         run: npm ci --include=dev
+      
+      - name: Preparar red peatonal compacta
+        run: npm run network:unpack
 
       - name: Comprobar tipos
         run: npm run typecheck
