@@ -3,7 +3,8 @@ import * as L from 'leaflet'
 import { getRouteBlockages } from '../utils/route-geometry'
 
 import IncidentReportForm from './IncidentReportForm'
-import type { IncidentPoint } from './IncidentReportForm'
+import { isPedestrianImpact } from '../utils/pedestrian-network'
+import type { PedestrianImpact, PedestrianNetwork, PedestrianSegment } from '../utils/pedestrian-network'
 
 export type BlockedArea = {
   south: number
@@ -26,6 +27,7 @@ export type Incident = {
   effect: IncidentEffect
   reporterName: string | null
   blockedArea: BlockedArea
+  pedestrianImpact?: PedestrianImpact | null
   createdAt: string
   startsAt: string
   expiresAt: string
@@ -56,7 +58,12 @@ type Props = {
   getScenarioTime: () => string
 
   // La página administra los clics y el marcador del mapa.
-  selectedPoint: IncidentPoint | null
+  legacyAreaTestsEnabled: boolean
+  network: PedestrianNetwork | null
+  selectedSegments: PedestrianSegment[]
+  scope: 'segment' | 'street_section'
+  onScopeChange: (scope: 'segment' | 'street_section') => void
+  onToggleSegment: (segment: PedestrianSegment) => void
   selectingLocation: boolean
   onSelectLocation: () => void
   onCancelSelection: () => void
@@ -157,6 +164,7 @@ function isIncident(value: unknown): value is Incident {
       incident.reporterName === null ||
       typeof incident.reporterName === 'string'
     ) &&
+    (incident.pedestrianImpact == null || isPedestrianImpact(incident.pedestrianImpact)) &&
     isBlockedArea(incident.blockedArea) &&
     isDateString(incident.createdAt) &&
     isDateString(incident.startsAt) &&
@@ -383,7 +391,12 @@ function SimulationIncidentSection({
   onCreatingChange,
   onActiveIncidentsChange,
   onBlockedAreasChange,
-  selectedPoint,
+  legacyAreaTestsEnabled,
+  network,
+  selectedSegments,
+  scope,
+  onScopeChange,
+  onToggleSegment,
   selectingLocation,
   onSelectLocation,
   onCancelSelection,
@@ -657,7 +670,11 @@ function SimulationIncidentSection({
 
       <IncidentReportForm
         simulationId={simulationId}
-        point={selectedPoint}
+        network={network}
+        selectedSegments={selectedSegments}
+        scope={scope}
+        onScopeChange={onScopeChange}
+        onToggleSegment={onToggleSegment}
         selecting={selectingLocation}
         disabled={busy}
         getScenarioTime={getScenarioTime}
@@ -670,7 +687,7 @@ function SimulationIncidentSection({
 
       {/* Se conserva como herramienta de prueba mientras
           el formulario manual incorpora todas las opciones. */}
-      <details className="simulation-quick-test">
+      {legacyAreaTestsEnabled && <details className="simulation-quick-test">
         <summary>Prueba rápida de bloqueo</summary>
 
         <p>
@@ -698,7 +715,7 @@ function SimulationIncidentSection({
                   ? 'Sin recorrido pendiente'
                   : 'Simular bloqueo en el recorrido'}
         </button>
-      </details>
+      </details>}
 
       {error && (
         <p
@@ -779,6 +796,12 @@ function SimulationIncidentSection({
                 <p>
                   Efecto:{' '}
                   {EFFECT_LABELS[incident.effect]}
+                </p>
+
+                <p>
+                  Alcance: {incident.pedestrianImpact
+                    ? `${incident.pedestrianImpact.scope === 'segment' ? 'Un tramo' : 'Sección seleccionada'} · ${incident.pedestrianImpact.segmentIds.length} tramo(s)`
+                    : 'Área del modelo anterior'}
                 </p>
 
                 <p>

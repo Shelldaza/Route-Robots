@@ -145,14 +145,27 @@ export async function createRoutingMcpSession(
                         );
                     }
 
+                    if (!context.networkVersion && incidents.some((incident) => incident.pedestrianImpact)) {
+                        throw new RoutingError(400, 'Los incidentes de vereda requieren una entrega en el sandbox peatonal.');
+                    }
                     const route =
                         await services.calculateRoute({
                             origin: context.origin,
                             destination: context.destination,
-                            blockedAreas: incidents.map(
+                            blockedAreas: incidents.filter((incident) => !incident.pedestrianImpact).map(
                                 (incident) =>
                                     incident.blockedArea,
                             ),
+                            ...(context.networkVersion ? {
+                                networkVersion: context.networkVersion,
+                                strictOrigin: true,
+                                blockedSegmentIds: [...new Set(incidents.flatMap((incident) => {
+                                    if (incident.pedestrianImpact && incident.pedestrianImpact.networkVersion !== context.networkVersion) {
+                                        throw new RoutingError(409, 'Hay incidentes de otra versión de red. Iniciá un escenario nuevo.');
+                                    }
+                                    return incident.pedestrianImpact?.segmentIds ?? [];
+                                }))],
+                            } : {}),
                         });
 
                     const incidentIds = incidents.map(

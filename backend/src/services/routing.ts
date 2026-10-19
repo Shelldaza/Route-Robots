@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { routeIntersectsBlockedAreas } from './route-geometry';
 
+import { pedestrianNetwork, routeOnPedestrianNetwork } from './pedestrian-network';
+
 const ROUTING_TIMEOUT_MS = 15000;
 
 export const pointSchema = z.object({
@@ -27,6 +29,9 @@ export const routeRequestSchema = z.object({
     origin: pointSchema,
     destination: pointSchema,
     blockedAreas: z.array(blockedAreaSchema).max(10).optional(),
+    networkVersion: z.string().optional(),
+    blockedSegmentIds: z.array(z.string()).max(300).optional(),
+    strictOrigin: z.boolean().optional(),
 });
 
 const coordinateSchema = z.tuple([
@@ -61,6 +66,9 @@ export type CalculatedRoute = {
     distanceMeters: number;
     durationSeconds: number;
     profile: 'foot-walking';
+    networkVersion?: string;
+    provider?: 'pedestrian-sandbox';
+    segmentIds?: string[];
 };
 
 export class RoutingError extends Error {
@@ -96,6 +104,20 @@ export async function calculateRoute(
             400,
             'Enviá un origen, un destino y zonas bloqueadas con coordenadas válidas.',
         );
+    }
+
+    if (parsedInput.data.networkVersion) {
+        if (parsedInput.data.networkVersion !== pedestrianNetwork.version) {
+            throw new RoutingError(409, 'La red peatonal cambió. Recargá el escenario.');
+        }
+        try {
+            return routeOnPedestrianNetwork(parsedInput.data);
+        } catch (error) {
+            throw new RoutingError(422, error instanceof Error ? error.message : 'No se pudo calcular la ruta peatonal.');
+        }
+    }
+    if (parsedInput.data.blockedSegmentIds?.length) {
+        throw new RoutingError(400, 'Los bloqueos de vereda requieren el modo sandbox peatonal.');
     }
 
     const apiKey = process.env.ORS_API_KEY?.trim();

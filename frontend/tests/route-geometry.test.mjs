@@ -92,3 +92,29 @@ describe('Bloqueos que afectan al recorrido pendiente', () => {
     assert.deepEqual(getRouteBlockages([], [blockage]), [])
   })
 })
+
+describe('Incidentes asociados a tramos peatonales', () => {
+  const south = [[-77.04, 38.907], [-77.039, 38.907]]
+  const north = [[-77.04, 38.9072], [-77.039, 38.9072]]
+  const incident = { ...blockage, pedestrianImpact: { segments: [{ coordinates: south }] } }
+
+  it('ignora el rectángulo de compatibilidad y mantiene libre la vereda de enfrente', () => {
+    assert.deepEqual(getRouteBlockages(north, [incident]), [])
+    assert.deepEqual(getRouteBlockages(south, [incident]), [incident])
+  })
+  it('detecta la parte pendiente dentro del tramo y el sentido inverso', () => {
+    assert.deepEqual(getRouteBlockages([[-77.0395, 38.907], south[1]], [incident]), [incident])
+    assert.deepEqual(getRouteBlockages([...south].reverse(), [incident]), [incident])
+  })
+  it('tocar una esquina al tomar otro tramo no cuenta como atravesar el bloqueo', () => {
+    assert.deepEqual(getRouteBlockages([south[0], north[0]], [incident]), [])
+    assert.deepEqual(getRouteBlockages([south[1], [-77.038, 38.907]], [incident]), [])
+  })
+  it('un alcance ampliado afecta exactamente las geometrías seleccionadas', () => {
+    const expanded = { ...incident, pedestrianImpact: { segments: [
+      { coordinates: south }, { coordinates: north },
+    ] } }
+    assert.deepEqual(getRouteBlockages(north, [expanded]), [expanded])
+    assert.deepEqual(getRouteBlockages(north, [{ ...expanded, effect: 'caution' }]), [])
+  })
+})

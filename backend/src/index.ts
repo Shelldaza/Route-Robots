@@ -6,12 +6,15 @@ import { robotsRouter } from './routes/robots';
 import { incidentsRouter } from './routes/incidents';
 import { replanningRouter } from './routes/replanning';
 
+import { pedestrianNetworkRouter } from './routes/pedestrian-network';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
 app.use('/api/routes', routesRouter);
+app.use('/api/pedestrian-network', pedestrianNetworkRouter);
 app.use('/api/robots', robotsRouter);
 app.use('/api/incidents', incidentsRouter);
 app.use('/api/replanning', replanningRouter);

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { pool } from '../db';
+import { pedestrianSelectionSchema, resolvePedestrianSelection, impactBounds } from './pedestrian-network';
+import type { PedestrianImpact } from './pedestrian-network';
 import { blockedAreaSchema } from './routing';
 import {
     INCIDENT_CATALOG,
@@ -33,7 +35,8 @@ const incidentEffectSchema = z.enum([
 
 export const createIncidentSchema = z.object({
     simulationId: simulationIdSchema,
-    blockedArea: blockedAreaSchema,
+    blockedArea: blockedAreaSchema.optional(),
+    pedestrianSelection: pedestrianSelectionSchema.optional(),
 
     // Compatibilidad con el botón actual.
     type: incidentTypeSchema.default('blockage'),
@@ -69,6 +72,13 @@ export const createIncidentSchema = z.object({
         .optional(),
 
     startsAt: scenarioTimeSchema.optional(),
+}).superRefine((input, context) => {
+    if (!input.blockedArea && !input.pedestrianSelection) {
+        context.addIssue({ code: 'custom', message: 'Seleccioná una ubicación válida.' });
+    }
+    if (input.source === 'manual' && !input.pedestrianSelection) {
+        context.addIssue({ code: 'custom', message: 'Seleccioná tramos de la red peatonal.' });
+    }
 });
 
 export type Incident = {
@@ -83,6 +93,7 @@ export type Incident = {
     effect: IncidentEffect;
     reporterName: string | null;
     blockedArea: z.infer<typeof blockedAreaSchema>;
+    pedestrianImpact?: PedestrianImpact | null;
     createdAt: Date;
     startsAt: Date;
     expiresAt: Date;
@@ -111,6 +122,7 @@ const incidentColumns = `
         'north', north,
         'east', east
     ) AS "blockedArea",
+    pedestrian_impact AS "pedestrianImpact",
     created_at AS "createdAt",
     starts_at AS "startsAt",
     expires_at AS "expiresAt"
@@ -169,8 +181,9 @@ export async function createIncident(
         );
     }
 
-    const { south, west, north, east } =
-        input.blockedArea;
+    const impact = input.pedestrianSelection
+        ? resolvePedestrianSelection(input.pedestrianSelection) : null;
+    const { south, west, north, east } = impact ? impactBounds(impact) : input.blockedArea!;
 
     const result = await pool.query<Incident>(
         `
@@ -187,11 +200,12 @@ export async function createIncident(
             north,
             east,
             starts_at,
-            expires_at
+            expires_at,
+            pedestrian_impact
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11, $12, $13
+            $8, $9, $10, $11, $12, $13, $14
         )
         RETURNING ${incidentColumns}
         `,
@@ -209,6 +223,7 @@ export async function createIncident(
             east,
             startsAt,
             expiresAt,
+            impact ? JSON.stringify(impact) : null,
         ],
     );
 

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { resolvePedestrianSelection } from '../services/pedestrian-network';
 import { z } from 'zod';
 import {
     createIncident,
@@ -42,6 +43,13 @@ incidentsRouter.post('/', async (req, res) => {
         return;
     }
 
+    if (input.data.pedestrianSelection) {
+        try { resolvePedestrianSelection(input.data.pedestrianSelection); }
+        catch (error) {
+            res.status(400).json({ message: error instanceof Error ? error.message : 'La selección no es válida.' });
+            return;
+        }
+    }
     try {
         const incident = await createIncident(input.data);
 

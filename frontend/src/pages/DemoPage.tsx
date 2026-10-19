@@ -5,6 +5,8 @@ import 'leaflet/dist/leaflet.css'
 import './DemoPage.css'
 import RobotSetupSection from '../components/RobotSetupSection'
 import type { Robot } from '../components/RobotSetupSection'
+import { drawPedestrianNetwork, fetchPedestrianNetwork } from '../utils/pedestrian-network'
+import type { PedestrianNetwork } from '../utils/pedestrian-network'
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
 
@@ -12,6 +14,17 @@ function DemoPage() {
   const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
   const markersRef = useRef<L.LayerGroup | null>(null)
+
+  const [network, setNetwork] = useState<PedestrianNetwork | null>(null)
+  const [networkError, setNetworkError] = useState('')
+  const [pedestrianMode, setPedestrianMode] = useState(true)
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetchPedestrianNetwork(AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]))
+      .then((value) => { if (!controller.signal.aborted) setNetwork(value) })
+      .catch(() => { if (!controller.signal.aborted) setNetworkError('No se pudo cargar el sandbox. Recargá la página para reintentar.') })
+    return () => controller.abort()
+  }, [])
 
   const [points, setPoints] = useState<L.LatLngLiteral[]>([])
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null)
@@ -30,6 +43,19 @@ function DemoPage() {
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map)
 
+    if (pedestrianMode && network) {
+      drawPedestrianNetwork(map, network)
+
+      const { south, west, north, east } = network.bounds
+
+      map.fitBounds(
+        [
+          [south, west],
+          [north, east],
+        ],
+        { padding: [20, 20] },
+      )
+    }
     markersRef.current = L.layerGroup().addTo(map)
 
     map.on('click', (event: L.LeafletMouseEvent) => {
@@ -47,7 +73,7 @@ function DemoPage() {
       map.remove()
       markersRef.current = null
     }
-  }, [])
+  }, [network, pedestrianMode])
 
   useEffect(() => {
     const markers = markersRef.current
@@ -72,7 +98,7 @@ function DemoPage() {
         })
         .addTo(markers)
     })
-  }, [points])
+  }, [points, network, pedestrianMode])
 
   function continueToSimulation() {
     const origin = points[0]
@@ -85,11 +111,12 @@ function DemoPage() {
         robot: selectedRobot,
         origin,
         destination,
+        ...(pedestrianMode && network ? { networkVersion: network.version } : {}),
       },
     })
   }
 
-  const canContinue = selectedRobot !== null && points.length === 2
+  const canContinue = selectedRobot !== null && points.length === 2 && (!pedestrianMode || network !== null)
 
   const instruction =
     points.length === 0
@@ -165,6 +192,15 @@ function DemoPage() {
 
           <div className="layout">
             <aside className="panel" aria-label="Puntos del recorrido">
+              <label>
+                <input type="checkbox" checked={pedestrianMode} onChange={(event) => {
+                  setPedestrianMode(event.target.checked); setPoints([])
+                }} />
+                Sandbox de veredas y cruces
+              </label>
+              {pedestrianMode && <p role="status">{networkError || (network
+                ? 'Elegí puntos sobre las líneas violetas (veredas y caminos) y naranjas (cruces). Los desvíos usan únicamente esta red.'
+                : 'Cargando red peatonal…')}</p>}
               <p role="status">{instruction}</p>
 
               {['Origen', 'Destino'].map((label, index) => {

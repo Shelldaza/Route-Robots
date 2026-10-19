@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-
-export type IncidentPoint = {
-  lat: number
-  lng: number
-}
+import { segmentLabels } from '../utils/pedestrian-network'
+import type { PedestrianNetwork, PedestrianSegment } from '../utils/pedestrian-network'
 
 type CatalogEntry = {
   type: string
@@ -16,7 +13,11 @@ type CatalogEntry = {
 
 type Props = {
   simulationId: string
-  point: IncidentPoint | null
+  network: PedestrianNetwork | null
+  selectedSegments: PedestrianSegment[]
+  scope: 'segment' | 'street_section'
+  onScopeChange: (scope: 'segment' | 'street_section') => void
+  onToggleSegment: (segment: PedestrianSegment) => void
   selecting: boolean
   disabled: boolean
   getScenarioTime: () => string
@@ -68,7 +69,11 @@ async function readResponse(response: Response): Promise<unknown> {
 
 function IncidentReportForm({
   simulationId,
-  point,
+  network,
+  selectedSegments,
+  scope,
+  onScopeChange,
+  onToggleSegment,
   selecting,
   disabled,
   getScenarioTime,
@@ -80,6 +85,7 @@ function IncidentReportForm({
 }: Props) {
   const [catalog, setCatalog] = useState<CatalogEntry[]>([])
   const [selectedType, setSelectedType] = useState('')
+  const [effect, setEffect] = useState<CatalogEntry['defaultEffect']>('blockage')
   const [description, setDescription] = useState('')
   const [durationMinutes, setDurationMinutes] = useState('')
   const [loading, setLoading] = useState(true)
@@ -123,6 +129,7 @@ function IncidentReportForm({
 
         setCatalog(body)
         setSelectedType(first.type)
+        setEffect(first.defaultEffect)
         setDescription(first.defaultDescription)
         setDurationMinutes(
           String(first.defaultDurationMinutes),
@@ -155,6 +162,7 @@ function IncidentReportForm({
     if (!item) return
 
     setSelectedType(type)
+    setEffect(item.defaultEffect)
     setDescription(item.defaultDescription)
     setDurationMinutes(
       String(item.defaultDurationMinutes),
@@ -172,8 +180,8 @@ function IncidentReportForm({
 
     const duration = Number(durationMinutes)
 
-    if (!selected || !point) {
-      setError('Elegí un tipo y una ubicación en el mapa.')
+    if (!selected || !network || !selectedSegments.length || (scope === 'street_section' && selectedSegments.length < 2)) {
+      setError('Elegí un tipo y los tramos afectados; el alcance ampliado requiere al menos dos.')
       return
     }
 
@@ -196,21 +204,6 @@ function IncidentReportForm({
         'La descripción admite hasta 500 caracteres.',
       )
       return
-    }
-
-    // Área aproximada de 20 × 20 metros.
-    const halfHeight = 10 / 111320
-    const halfWidth =
-      10 / (
-        111320 *
-        Math.cos((point.lat * Math.PI) / 180)
-      )
-
-    const blockedArea = {
-      south: point.lat - halfHeight,
-      west: point.lng - halfWidth,
-      north: point.lat + halfHeight,
-      east: point.lng + halfWidth,
     }
 
     pendingRef.current = true
@@ -237,7 +230,12 @@ function IncidentReportForm({
           durationMinutes: duration,
           reporterName: 'Usuario',
           startsAt: getScenarioTime(),
-          blockedArea,
+          effect,
+          pedestrianSelection: {
+            networkVersion: network.version,
+            scope,
+            segmentIds: selectedSegments.map((segment) => segment.id),
+          },
         }),
         signal: AbortSignal.timeout(40000),
       })
@@ -276,6 +274,7 @@ function IncidentReportForm({
   return (
     <div className="incident-report-form">
       <h3>Reportar incidente</h3>
+      {!network && <p role="status">Para reportar sobre veredas, iniciá una entrega en el sandbox peatonal. {" "}Si ya lo elegiste, recargá para reintentar la carga de la red.</p>}
 
       {loading ? (
         <p role="status">Cargando tipos de incidente…</p>
@@ -290,7 +289,7 @@ function IncidentReportForm({
           Reintentar carga del catálogo
         </button>
       ) : (
-        <fieldset disabled={disabled || saving}>
+        <fieldset disabled={disabled || saving || !network}>
           <label>
             Tipo de incidente
 
@@ -320,18 +319,48 @@ function IncidentReportForm({
               onSelectLocation()
             }}
           >
-            {point
+            {selectedSegments.length > 0
               ? 'Cambiar ubicación'
               : 'Seleccionar ubicación en el mapa'}
           </button>
 
           <p role="status">
             {selecting
-              ? 'Hacé clic en el mapa. Podés mover el marcador antes de confirmar.'
-              : point
-                ? `Ubicación: ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
-                : 'Todavía no seleccionaste una ubicación.'}
+              ? 'Elegí las líneas resaltadas. Cada clic selecciona o retira un tramo.'
+              : selectedSegments.length ? `${selectedSegments.length} tramo(s) seleccionado(s).` : 'Todavía no seleccionaste un tramo.'}
           </p>
+          <label>
+            Efecto sobre el paso
+            <select value={effect} onChange={(event) => setEffect(event.target.value as CatalogEntry['defaultEffect'])}>
+              <option value="informational">Informativo</option>
+              <option value="caution">Precaución</option>
+              <option value="blockage">Bloqueo</option>
+            </select>
+          </label>
+          <label>
+            Alcance
+            <select value={scope} onChange={(event) => onScopeChange(event.target.value as 'segment' | 'street_section')}>
+              <option value="segment">Solo el tramo seleccionado</option>
+              <option value="street_section">Ambas veredas y cruces de la sección (seleccionar tramos)</option>
+            </select>
+          </label>
+          {scope === 'street_section' && <p>Seleccioná cada tramo afectado de ambas veredas y de los cruces. Solo se cerrarán las líneas rojas; revisalas antes de guardar. Máximo: 30 tramos cercanos.</p>}
+          {selecting && network && <label>
+            Elegir tramo por identificador
+            <select value="" onChange={(event) => {
+              const segment = network.segments.find((item) => item.id === event.target.value)
+              if (segment) onToggleSegment(segment)
+            }}>
+              <option value="">Elegir un tramo…</option>
+              {network.segments.map((segment) => <option key={segment.id} value={segment.id}>
+                {segmentLabels[segment.kind]} · {segment.name || segment.id}
+              </option>)}
+            </select>
+          </label>}
+          {selectedSegments.length > 0 && <ul>{selectedSegments.map((segment) => <li key={segment.id}>
+            {segmentLabels[segment.kind]} · {segment.name || segment.id}
+            <button type="button" onClick={() => onToggleSegment(segment)}>Quitar</button>
+          </li>)}</ul>}
 
           <details>
             <summary>Editar descripción y duración</summary>
@@ -374,12 +403,12 @@ function IncidentReportForm({
             className="simulation-incident-button"
             type="button"
             onClick={() => void submitReport()}
-            disabled={!point}
+            disabled={!network || selectedSegments.length === 0 || (scope === 'street_section' && selectedSegments.length < 2)}
           >
             {saving ? 'Guardando…' : 'Crear incidente'}
           </button>
 
-          {(selecting || point) && (
+          {(selecting || selectedSegments.length > 0) && (
             <button
               className="simulation-retry"
               type="button"

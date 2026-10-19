@@ -5,7 +5,8 @@ import 'leaflet/dist/leaflet.css'
 
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
-import blockageIconUrl from '../assets/incidents/blockage.png'
+import { drawPedestrianNetwork, fetchPedestrianNetwork } from '../utils/pedestrian-network'
+import type { PedestrianNetwork, PedestrianSegment } from '../utils/pedestrian-network'
 
 import SimulationIncidentSection from '../components/SimulationIncidentSection'
 import type {
@@ -13,7 +14,6 @@ import type {
   Incident,
 } from '../components/SimulationIncidentSection'
 import { getIncidentAppearance } from '../utils/incident-icons'
-import type { IncidentPoint } from '../components/IncidentReportForm'
 
 import {
   calculateRouteEstimates,
@@ -40,9 +40,11 @@ type RouteResponse = {
   distanceMeters: number
   durationSeconds: number
   profile: string
+  networkVersion?: string
 }
 
 type DeliveryDraft = {
+  networkVersion?: string
   robot: RobotOperatingProfile & {
     id: string
     name: string
@@ -114,6 +116,7 @@ function isDeliveryDraft(value: unknown): value is DeliveryDraft {
     typeof robot.name === 'string' &&
     robot.name.trim().length > 0 &&
     isRobotOperatingProfile(robot) &&
+    (draft.networkVersion === undefined || typeof draft.networkVersion === 'string') &&
     isPoint(draft.origin) &&
     isPoint(draft.destination)
   )
@@ -153,6 +156,7 @@ function isRouteResponse(value: unknown): value is RouteResponse {
     typeof route.durationSeconds === 'number' &&
     Number.isFinite(route.durationSeconds) &&
     route.durationSeconds >= 0 &&
+    (route.networkVersion === undefined || typeof route.networkVersion === 'string') &&
     typeof route.profile === 'string'
   )
 }
@@ -280,8 +284,21 @@ function SimulationContent({
   const [retryKey, setRetryKey] = useState(0)
   const [incidentSaving, setIncidentSaving] = useState(false)
   const [selectingLocation, setSelectingLocation] = useState(false)
-  const [selectedIncidentPoint, setSelectedIncidentPoint] =
-    useState<IncidentPoint | null>(null)
+  const [network, setNetwork] = useState<PedestrianNetwork | null>(null)
+  const [visibleSegments, setVisibleSegments] = useState<PedestrianSegment[]>([])
+  const [selectedSegments, setSelectedSegments] = useState<PedestrianSegment[]>([])
+  const [scope, setScope] = useState<'segment' | 'street_section'>('segment')
+
+  useEffect(() => {
+    if (!draft?.networkVersion) return
+    const controller = new AbortController()
+    void fetchPedestrianNetwork(AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]))
+      .then((value) => {
+        if (!controller.signal.aborted && value.version === draft.networkVersion) setNetwork(value)
+      })
+      .catch(() => { /* El formulario muestra el estado de red no disponible. */ })
+    return () => controller.abort()
+  }, [draft?.networkVersion])
 
   const [replanningStatus, setReplanningStatus] =
     useState<ReplanningStatus>('idle')
@@ -368,6 +385,7 @@ function SimulationContent({
           body: JSON.stringify({
             origin,
             destination,
+            ...(draft?.networkVersion ? { networkVersion: draft.networkVersion } : {}),
           }),
           signal: AbortSignal.any([
             controller.signal,
@@ -377,7 +395,7 @@ function SimulationContent({
 
         const body = await readResponse(response)
 
-        if (!isRouteResponse(body)) {
+        if (!isRouteResponse(body) || body.networkVersion !== draft?.networkVersion) {
           throw new Error(
             'El servidor devolvió una ruta inválida.',
           )
@@ -420,15 +438,6 @@ function SimulationContent({
     )
 
     mapRef.current = map
-
-    map.on('click', (event: L.LeafletMouseEvent) => {
-      if (!selectingLocationRef.current) return
-
-      setSelectedIncidentPoint({
-        lat: event.latlng.lat,
-        lng: event.latlng.lng,
-      })
-    })
 
     L.tileLayer(
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -517,59 +526,44 @@ function SimulationContent({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
 
-    const container = map.getContainer()
-    const previousCursor = container.style.cursor
-    container.style.cursor = selectingLocation && !evaluationBusy
-      ? 'crosshair'
-      : previousCursor
+    if (!map || !network) return
 
-    // La vista previa no pertenece a la capa de incidentes guardados.
-    // Cancelarla elimina solo el borrador, sin modificar el escenario.
-    let preview: L.Marker | null = null
+    const layer = drawPedestrianNetwork(
+      map,
+      network,
+      selectedSegments.map((segment) => segment.id),
+      selectingLocation && !evaluationBusy
+        ? (segment) => {
+          if (!selectingLocationRef.current) return
 
-    if (selectingLocation && selectedIncidentPoint) {
-      preview = L.marker(selectedIncidentPoint, {
-        icon: L.icon({
-          iconUrl: blockageIconUrl,
-          iconSize: [52, 52],
-          iconAnchor: [26, 26],
-          tooltipAnchor: [0, -26],
-          className: 'simulation-blockage-icon',
-        }),
-        draggable: !evaluationBusy,
-        bubblingMouseEvents: false,
-        alt: 'Ubicación del incidente sin guardar',
-        title: 'Arrastrá para ajustar la ubicación',
-        zIndexOffset: 1500,
-      })
-        .bindTooltip('Nuevo incidente — sin guardar', {
-          permanent: true,
-          direction: 'top',
-        })
-        .addTo(map)
-
-      preview.on('dragend', (event: L.DragEndEvent) => {
-        if (!selectingLocationRef.current) return
-        const marker = event.target as L.Marker
-        const point = marker.getLatLng()
-        setSelectedIncidentPoint({ lat: point.lat, lng: point.lng })
-      })
-    }
+          setSelectedSegments((current) =>
+            current.some((item) => item.id === segment.id)
+              ? current.filter(
+                (item) => item.id !== segment.id,
+              )
+              : scope === 'segment'
+                ? [segment]
+                : [...current, segment].slice(0, 30),
+          )
+        }
+        : undefined,
+      selectedSegments,
+      setVisibleSegments,
+    )
 
     return () => {
-      preview?.remove()
-      container.style.cursor = previousCursor
+      layer.remove()
     }
   }, [
+    network,
+    selectedSegments,
+    scope,
     selectingLocation,
-    selectedIncidentPoint,
     evaluationBusy,
     route,
     alternative,
   ])
-
   useEffect(() => {
     // Actualizamos las capas existentes para no perder el zoom ni el
     // desplazamiento del mapa en cada fotograma de la animación.
@@ -618,6 +612,12 @@ function SimulationContent({
     // que blockedAreas sigue reservada para los desvíos por bloqueos.
     activeIncidents.forEach((incident) => {
       const appearance = getIncidentAppearance(incident.type)
+      incident.pedestrianImpact?.segments.forEach((segment) => {
+        L.polyline(segment.coordinates.map(([lng, lat]): L.LatLngTuple => [lat, lng]), {
+          color: incident.effect === 'blockage' ? '#dc2626' : incident.effect === 'caution' ? '#d97706' : '#2563eb',
+          weight: 9, opacity: 0.8, interactive: false,
+        }).addTo(layer)
+      })
       const area = incident.blockedArea
       const center: L.LatLngTuple = [
         (area.south + area.north) / 2,
@@ -681,7 +681,7 @@ function SimulationContent({
     if (evaluationBusy || replanningPendingRef.current) return
 
     pauseScenarioAndRobot()
-    setSelectedIncidentPoint(null)
+    setSelectedSegments([])
     selectingLocationRef.current = true
     setSelectingLocation(true)
     mapRef.current?.getContainer().scrollIntoView({ block: 'center' })
@@ -690,7 +690,7 @@ function SimulationContent({
   function cancelIncidentSelection() {
     selectingLocationRef.current = false
     setSelectingLocation(false)
-    setSelectedIncidentPoint(null)
+    setSelectedSegments([])
     // No reanudamos automáticamente: el usuario decide cuándo continuar.
   }
 
@@ -789,6 +789,7 @@ function SimulationContent({
         },
         body: JSON.stringify({
           simulationId,
+          ...(route?.networkVersion ? { networkVersion: route.networkVersion } : {}),
           origin,
           destination: draft.destination,
           scenarioTime,
@@ -813,6 +814,9 @@ function SimulationContent({
       setToolCalls(body.toolCalls)
 
       if (body.status === 'alternative_ready') {
+        if (body.route.networkVersion !== route?.networkVersion) {
+          throw new Error('El desvío pertenece a otra red peatonal. No se aplicó.')
+        }
         // Cambia el tramo pendiente y conserva la distancia y el tiempo
         // acumulados; la nueva ruta queda pausada hasta reanudarla.
         loadRoute(body.route, true)
@@ -1209,6 +1213,11 @@ function SimulationContent({
                 ' · Destino alcanzado'}
             </p>
 
+            {route.networkVersion && <p className="simulation-notice">
+              Sandbox peatonal: los recorridos usan la red fija de veredas y cruces de OpenStreetMap.
+              Violeta: veredas y caminos. Naranja: cruces. Rojo: tramos seleccionados o bloqueados.
+              La conectividad corresponde al mapa; no certifica la accesibilidad física del robot.
+            </p>}
             <p className="simulation-notice">
               El reloj del escenario puede avanzar con el
               robot detenido o después de llegar al destino.
@@ -1605,7 +1614,24 @@ function SimulationContent({
                   ? []
                   : motion.remainingCoordinates
               }
-              selectedPoint={selectedIncidentPoint}
+              legacyAreaTestsEnabled={!draft.networkVersion}
+              network={
+                network
+                  ? { ...network, segments: visibleSegments }
+                  : null
+              }
+              selectedSegments={selectedSegments}
+              scope={scope}
+              onScopeChange={(value) => {
+                setScope(value)
+                if (value === 'segment') setSelectedSegments((current) => current.slice(0, 1))
+              }}
+              onToggleSegment={(segment) => {
+                if (!selectingLocationRef.current || evaluationBusy) return
+                setSelectedSegments((current) => current.some((item) => item.id === segment.id)
+                  ? current.filter((item) => item.id !== segment.id)
+                  : scope === 'segment' ? [segment] : [...current, segment].slice(0, 30))
+              }}
               selectingLocation={selectingLocation}
               onSelectLocation={selectIncidentLocation}
               onCancelSelection={cancelIncidentSelection}
