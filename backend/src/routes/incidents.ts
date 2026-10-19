@@ -12,8 +12,49 @@ import {
     INCIDENT_CATALOG,
     INCIDENT_TYPES,
 } from '../config/incident-catalog';
+import {
+    generateRandomIncident,
+    randomIncidentSchema,
+    RandomIncidentError,
+} from '../services/random-incidents';
 
 export const incidentsRouter = Router();
+
+incidentsRouter.post('/random', async (req, res) => {
+    const input =
+        randomIncidentSchema.safeParse(req.body);
+
+    if (!input.success) {
+        res.status(400).json({
+            message:
+                'El contexto del reporte aleatorio no es válido.',
+        });
+        return;
+    }
+
+    try {
+        const result =
+            await generateRandomIncident(input.data);
+
+        res.status(200).json(result);
+    } catch (error) {
+        if (error instanceof RandomIncidentError) {
+            res.status(error.statusCode).json({
+                message: error.message,
+            });
+            return;
+        }
+
+        console.error(
+            'No se pudo generar el reporte de la flota simulada.',
+        );
+
+        res.status(500).json({
+            message:
+                'No se pudo guardar el reporte de la flota simulada.',
+        });
+    }
+});
 
 incidentsRouter.get('/catalog', (_req, res) => {
     res.status(200).json(

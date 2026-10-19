@@ -86,9 +86,9 @@ export type Incident = {
     simulationId: string;
     type: IncidentType | 'blockage';
     source:
-        | 'simulation'
-        | 'manual'
-        | 'ai_generated';
+    | 'simulation'
+    | 'manual'
+    | 'ai_generated';
     description: string;
     effect: IncidentEffect;
     reporterName: string | null;
@@ -136,17 +136,18 @@ function resolveScenarioTime(value?: string): Date {
 
 export async function createIncident(
     value: unknown,
+    id: string = randomUUID(),
 ): Promise<Incident> {
     const input = createIncidentSchema.parse(value);
-
+    simulationIdSchema.parse(id);
     const defaults =
         input.type === 'blockage'
             ? {
-                  defaultDescription:
-                      'Bloqueo registrado en la simulación.',
-                  defaultDurationMinutes: 15,
-                  defaultEffect: 'blockage' as const,
-              }
+                defaultDescription:
+                    'Bloqueo registrado en la simulación.',
+                defaultDurationMinutes: 15,
+                defaultEffect: 'blockage' as const,
+            }
             : INCIDENT_CATALOG[input.type];
 
     const description =
@@ -165,8 +166,8 @@ export async function createIncident(
             input.source === 'manual'
                 ? 'Usuario'
                 : input.source === 'ai_generated'
-                  ? 'Flota simulada'
-                  : 'Simulador'
+                    ? 'Flota simulada'
+                    : 'Simulador'
         );
 
     const startsAt = resolveScenarioTime(input.startsAt);
@@ -207,10 +208,11 @@ export async function createIncident(
             $1, $2, $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13, $14
         )
+        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
         RETURNING ${incidentColumns}
         `,
         [
-            randomUUID(),
+            id,
             input.simulationId,
             input.type,
             input.source,
@@ -316,4 +318,18 @@ export async function listActiveIncidents(
     );
 
     return result.rows;
+}
+export async function findIncidentById(
+    id: string,
+): Promise<Incident | null> {
+    const result = await pool.query<Incident>(
+        `
+        SELECT ${incidentColumns}
+        FROM incidents
+        WHERE id = $1
+        `,
+        [simulationIdSchema.parse(id)],
+    );
+
+    return result.rows[0] ?? null;
 }

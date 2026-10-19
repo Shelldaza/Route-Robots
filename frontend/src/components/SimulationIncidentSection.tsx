@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
 import { getRouteBlockages } from '../utils/route-geometry'
-
+import RandomFleetReports from './RandomFleetReports'
 import IncidentReportForm from './IncidentReportForm'
 import { isPedestrianImpact } from '../utils/pedestrian-network'
 import type { PedestrianImpact, PedestrianNetwork, PedestrianSegment } from '../utils/pedestrian-network'
@@ -55,6 +55,7 @@ type Props = {
   simulationId: string
   coordinates: Coordinate[]
   scenarioTime: string
+  randomReportsDisabled: boolean
   getScenarioTime: () => string
 
   // La página administra los clics y el marcador del mapa.
@@ -381,6 +382,27 @@ function getErrorMessage(error: unknown): string {
     ? error.message
     : 'No se pudo completar la operación.'
 }
+function mergeIncidents(
+  current: Incident[],
+  incoming: Incident[],
+): Incident[] {
+  const records = new Map(
+    current.map((incident) => [
+      incident.id,
+      incident,
+    ]),
+  )
+
+  for (const incident of incoming) {
+    records.set(incident.id, incident)
+  }
+
+  return [...records.values()].sort(
+    (first, second) =>
+      Date.parse(second.startsAt)
+      - Date.parse(first.startsAt),
+  )
+}
 
 function SimulationIncidentSection({
   simulationId,
@@ -389,6 +411,7 @@ function SimulationIncidentSection({
   getScenarioTime,
   onBeforeCreate,
   onCreatingChange,
+  randomReportsDisabled,
   onActiveIncidentsChange,
   onBlockedAreasChange,
   legacyAreaTestsEnabled,
@@ -447,7 +470,9 @@ function SimulationIncidentSection({
         )
 
         if (!controller.signal.aborted) {
-          setIncidents(history)
+          setIncidents(
+            (current) => mergeIncidents(current, history),
+          )
         }
       } catch (caught) {
         if (!controller.signal.aborted) {
@@ -556,7 +581,9 @@ function SimulationIncidentSection({
       AbortSignal.timeout(40000),
     )
 
-    setIncidents(history)
+    setIncidents(
+      (current) => mergeIncidents(current, history),
+    )
     setError('')
   }
 
@@ -596,7 +623,9 @@ function SimulationIncidentSection({
         AbortSignal.timeout(40000),
       )
 
-      setIncidents(history)
+      setIncidents(
+        (current) => mergeIncidents(current, history),
+      )
 
       const existingBlockage = getRouteBlockages(
         coordinates,
@@ -667,6 +696,27 @@ function SimulationIncidentSection({
         ubicación. La descripción y la duración tienen
         valores predeterminados que podés editar.
       </p>
+      {network && (
+        <RandomFleetReports
+          simulationId={simulationId}
+          networkVersion={network.version}
+          scenarioTime={scenarioTime}
+          coordinates={coordinates}
+          disabled={
+            randomReportsDisabled
+            || busy
+            || selectingLocation
+          }
+          validateIncident={isIncident}
+          onReported={(incident) => {
+            setIncidents(
+              (current) =>
+                mergeIncidents(current, [incident]),
+            )
+          }}
+        />
+      )}
+
 
       <IncidentReportForm
         simulationId={simulationId}
