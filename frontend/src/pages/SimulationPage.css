@@ -523,3 +523,69 @@
   outline: 3px solid #0066cc;
   outline-offset: 3px;
 }
+.random-fleet-reports {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.random-fleet-reports h3 {
+  margin-top: 0;
+}
+
+.random-fleet-reports label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.random-fleet-feed {
+  padding-left: 20px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.random-fleet-feed li {
+  padding: 10px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.random-fleet-feed p {
+  margin: 5px 0;
+}
+
+.random-fleet-feed time,
+.random-fleet-feed small {
+  color: #475569;
+}
+
+.random-fleet-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2000;
+  width: min(360px, calc(100vw - 40px));
+  padding: 20px;
+  box-sizing: border-box;
+  border: 1px solid #99f6e4;
+  border-left: 5px solid #0f766e;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 8px 30px #0f172a26;
+}
+
+.random-fleet-toast > button {
+  float: right;
+  margin: -8px -8px 4px 12px;
+  border: 0;
+  background: transparent;
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.random-fleet-toast p {
+  margin-bottom: 0;
+}

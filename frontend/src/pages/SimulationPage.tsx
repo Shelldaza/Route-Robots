@@ -1616,6 +1616,7 @@ function SimulationContent({
                   ? []
                   : motion.remainingCoordinates
               }
+              randomReportsDisabled={controlsLocked}
               legacyAreaTestsEnabled={!draft.networkVersion}
               network={
                 network
