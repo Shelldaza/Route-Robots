@@ -452,8 +452,10 @@ function SimulationContent({
       color: '#0f766e',
       weight: 6,
       opacity: 0.95,
+
+      // El clic atraviesa el recorrido y llega a la vereda.
+      interactive: false,
     })
-      .bindTooltip('Recorrido pendiente')
       .addTo(map)
 
     if (!alternative) {

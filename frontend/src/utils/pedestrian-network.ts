@@ -58,11 +58,11 @@ export async function fetchPedestrianNetwork(
 ): Promise<PedestrianNetwork> {
   const query = bounds
     ? `?${new URLSearchParams({
-        south: String(bounds.south),
-        west: String(bounds.west),
-        north: String(bounds.north),
-        east: String(bounds.east),
-      })}`
+      south: String(bounds.south),
+      west: String(bounds.west),
+      north: String(bounds.north),
+      east: String(bounds.east),
+    })}`
     : ''
 
   const response = await fetch(
@@ -77,9 +77,9 @@ export async function fetchPedestrianNetwork(
   if (!response.ok) {
     const message =
       value &&
-      typeof value === 'object' &&
-      'message' in value &&
-      typeof value.message === 'string'
+        typeof value === 'object' &&
+        'message' in value &&
+        typeof value.message === 'string'
         ? value.message
         : 'No se pudo cargar la red peatonal.'
 
@@ -138,13 +138,29 @@ export function drawPedestrianNetwork(
 ) {
   const layer = L.layerGroup().addTo(map)
   const renderer = L.canvas({ padding: 0.2 })
+  const previewPaneName = 'pedestrian-incident-preview'
+
+  const previewPane =
+    map.getPane(previewPaneName) ??
+    map.createPane(previewPaneName)
+
+  // Por encima del recorrido y debajo de los marcadores.
+  previewPane.style.zIndex = '450'
+
+  // Los clics siguen llegando a las veredas.
+  previewPane.style.pointerEvents = 'none'
+
+  const previewRenderer = L.canvas({
+    pane: previewPaneName,
+    padding: 0.2,
+  })
   const selected = new Set(selectedIds)
 
   const pinned = selectedSegments.length
     ? selectedSegments
     : network.segments.filter(
-        (segment) => selected.has(segment.id),
-      )
+      (segment) => selected.has(segment.id),
+    )
 
   let disposed = false
   let controller: AbortController | null = null
@@ -206,6 +222,23 @@ export function drawPedestrianNetwork(
           bubblingMouseEvents: false,
         },
       ).addTo(layer)
+
+      // Refuerzo visual de la selección por encima del recorrido.
+      // La línea original conserva la interacción para quitarla.
+      if (isSelected) {
+        L.polyline(
+          segment.coordinates.map(
+            ([lng, lat]): L.LatLngTuple => [lat, lng],
+          ),
+          {
+            renderer: previewRenderer,
+            color: '#dc2626',
+            weight: 8,
+            opacity: 1,
+            interactive: false,
+          },
+        ).addTo(layer)
+      }
 
       if (onSelect) {
         const tooltip = document.createElement('span')
@@ -348,6 +381,7 @@ export function drawPedestrianNetwork(
 
     control.remove()
     renderer.remove()
+    previewRenderer.remove()
   }
 
   map.on('moveend zoomend', refresh)
