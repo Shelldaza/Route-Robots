@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import {
     replanRoute,
     ReplanningError,
@@ -46,11 +46,10 @@ replanningRouter.post('/', async (req, res) => {
             return;
         }
 
-        if (error instanceof OpenAI.APIError) {
+        if (error instanceof Anthropic.APIError) {
             console.error(
-                'Error de OpenAI durante la replanificación:',
+                'Error de Claude durante la replanificación:',
                 error.status,
-                error.code,
             );
 
             res.status(502).json({

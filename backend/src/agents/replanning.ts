@@ -1,10 +1,4 @@
-import OpenAI from 'openai';
-import type {
-    ResponseInput,
-} from 'openai/resources/responses/responses';
-import {
-    toResponseInputItems,
-} from 'openai/lib/responses/ResponseInputItems';
+import Anthropic from '@anthropic-ai/sdk';
 import {
     createRoutingMcpSession,
 } from '../mcp/routing-session';
@@ -66,7 +60,6 @@ export async function replanRoute(
         );
     }
 
-    // Esta fecha se conserva durante toda la evaluación.
     const context = {
         ...parsed.data,
         scenarioTime:
@@ -75,7 +68,7 @@ export async function replanRoute(
     };
 
     const apiKey =
-        process.env.OPENAI_API_KEY?.trim();
+        process.env.ANTHROPIC_API_KEY?.trim();
 
     if (!apiKey) {
         throw new ReplanningError(
@@ -84,8 +77,6 @@ export async function replanRoute(
         );
     }
 
-    // Evita consumir IA si no hay bloqueos activos
-    // en el momento consultado.
     const initialIncidents =
         await services.listActiveIncidents(
             context.simulationId,
@@ -99,7 +90,7 @@ export async function replanRoute(
         );
     }
 
-    const openai = new OpenAI({
+    const anthropic = new Anthropic({
         apiKey,
         timeout: 20000,
         maxRetries: 0,
@@ -119,26 +110,31 @@ export async function replanRoute(
             'calcular_desvio',
         ]);
 
-        const tools = available.tools
+        const tools: Anthropic.Tool[] = available.tools
             .filter((tool) =>
                 allowedNames.has(tool.name),
             )
             .map((tool) => ({
-                type: 'function' as const,
                 name: tool.name,
                 description: tool.description ?? '',
-                parameters: tool.inputSchema,
-                strict: true,
+                input_schema: {
+                    ...tool.inputSchema,
+                    type: 'object' as const,
+                    required: tool.inputSchema.required ?? [],
+                },
             }));
 
-        if (tools.length !== 2) {
+        if (
+            tools.length !== 2
+            || new Set(tools.map((tool) => tool.name)).size !== 2
+        ) {
             throw new ReplanningError(
                 503,
                 'No están disponibles las herramientas de replanificación.',
             );
         }
 
-        const input: ResponseInput = [
+        const messages: Anthropic.MessageParam[] = [
             {
                 role: 'user',
                 content:
@@ -160,47 +156,74 @@ export async function replanRoute(
                 (tool) => !executed.has(tool.name),
             );
 
+            const toolChoice: Anthropic.ToolChoice =
+                round === 0
+                    ? {
+                        type: 'tool',
+                        name: 'consultar_incidentes',
+                        disable_parallel_tool_use: true,
+                    }
+                    : round === 2
+                        || remainingTools.length === 0
+                        ? {
+                            type: 'none',
+                        }
+                        : {
+                            type: 'auto',
+                            disable_parallel_tool_use: true,
+                        };
+
             const response =
-                await openai.responses.create({
+                await anthropic.messages.create({
                     model:
-                        process.env.OPENAI_MODEL?.trim()
-                        || 'gpt-6-luna',
-                    instructions,
-                    input,
-                    tools: remainingTools,
-                    tool_choice:
-                        round === 0
-                            ? {
-                                  type: 'function',
-                                  name: 'consultar_incidentes',
-                              }
-                            : round === 2
-                              || remainingTools.length === 0
-                              ? 'none'
-                              : 'auto',
-                    parallel_tool_calls: false,
-                    reasoning: {
-                        effort: 'none',
+                        process.env.ANTHROPIC_MODEL?.trim()
+                        || 'claude-haiku-5-5',
+                    system: instructions,
+                    messages,
+                    tools,
+                    tool_choice: toolChoice,
+                    thinking: {
+                        type: 'disabled',
                     },
-                    max_output_tokens: 400,
-                    store: false,
+                    max_tokens: 400,
                 });
 
-            if (response.status !== 'completed') {
+            // Una respuesta truncada o interrumpida no sirve
+            // como evaluación completa.
+            if (
+                response.stop_reason !== 'tool_use'
+                && response.stop_reason !== 'end_turn'
+            ) {
                 throw new ReplanningError(
                     502,
                     'La IA no completó la evaluación. No se modificó la ruta.',
                 );
             }
 
-            const calls = response.output.filter(
-                (item) =>
-                    item.type === 'function_call',
+            const calls = response.content.filter(
+                (block): block is Anthropic.ToolUseBlock =>
+                    block.type === 'tool_use',
             );
 
             if (calls.length === 0) {
-                const explanation =
-                    response.output_text.trim();
+                if (
+                    round === 0
+                    || response.stop_reason !== 'end_turn'
+                ) {
+                    throw new ReplanningError(
+                        502,
+                        'La IA no respetó el flujo de consulta de incidentes.',
+                    );
+                }
+
+                const explanation = response.content
+                    .filter(
+                        (block): block is Anthropic.TextBlock =>
+                            block.type === 'text',
+                    )
+                    .map((block) => block.text)
+                    .join('\n')
+                    .trim();
 
                 if (!explanation) {
                     throw new ReplanningError(
@@ -209,8 +232,7 @@ export async function replanRoute(
                     );
                 }
 
-                const candidate =
-                    session.getCandidate();
+                const candidate = session.getCandidate();
 
                 if (!candidate) {
                     return {
@@ -219,13 +241,11 @@ export async function replanRoute(
                         explanation,
                         incidentIds: [] as string[],
                         toolCalls,
-                        scenarioTime:
-                            context.scenarioTime,
+                        scenarioTime: context.scenarioTime,
                     };
                 }
 
-                // Vuelve a consultar la base usando la misma
-                // fecha, para detectar cambios en los registros.
+                // Conserva la misma fecha durante la validación.
                 const currentIncidents =
                     await services.listActiveIncidents(
                         context.simulationId,
@@ -250,13 +270,63 @@ export async function replanRoute(
                     );
                 }
 
+                // Los incidentes peatonales bloquean tramos concretos.
+                // Los incidentes sin selección peatonal bloquean áreas.
+                const pedestrianIncidents = currentIncidents.filter(
+                    (incident) => incident.pedestrianImpact,
+                );
+
+                const blockedAreas = currentIncidents
+                    .filter((incident) => !incident.pedestrianImpact)
+                    .map((incident) => incident.blockedArea);
+
+                if (pedestrianIncidents.length > 0) {
+                    const route = candidate.route;
+
+                    // Para validar por tramos necesitamos una ruta
+                    // calculada sobre la misma versión de la red.
+                    if (
+                        !context.networkVersion
+                        || route.provider !== 'pedestrian-sandbox'
+                        || route.networkVersion !== context.networkVersion
+                        || !Array.isArray(route.segmentIds)
+                        || pedestrianIncidents.some(
+                            (incident) =>
+                                incident.pedestrianImpact?.networkVersion
+                                !== context.networkVersion,
+                        )
+                    ) {
+                        throw new ReplanningError(
+                            409,
+                            'No se pudo validar la alternativa sobre la misma red peatonal. Solicitá nuevamente el desvío.',
+                        );
+                    }
+
+                    const blockedSegmentIds = new Set(
+                        pedestrianIncidents.flatMap(
+                            (incident) =>
+                                incident.pedestrianImpact?.segmentIds ?? [],
+                        ),
+                    );
+
+                    if (
+                        route.segmentIds.some(
+                            (id) => blockedSegmentIds.has(id),
+                        )
+                    ) {
+                        throw new ReplanningError(
+                            422,
+                            'La alternativa atraviesa un tramo peatonal bloqueado.',
+                        );
+                    }
+                }
+
+                // Los rectángulos se utilizan únicamente para
+                // incidentes que realmente bloquean un área.
                 if (
                     routeIntersectsBlockedAreas(
                         candidate.route.geometry.coordinates,
-                        currentIncidents.map(
-                            (incident) =>
-                                incident.blockedArea,
-                        ),
+                        blockedAreas,
                     )
                 ) {
                     throw new ReplanningError(
@@ -271,14 +341,14 @@ export async function replanRoute(
                     explanation,
                     incidentIds: candidate.incidentIds,
                     toolCalls,
-                    scenarioTime:
-                        context.scenarioTime,
+                    scenarioTime: context.scenarioTime,
                 };
             }
 
             if (
                 calls.length !== 1
                 || round === 2
+                || response.stop_reason !== 'tool_use'
             ) {
                 throw new ReplanningError(
                     502,
@@ -286,93 +356,106 @@ export async function replanRoute(
                 );
             }
 
-            input.push(
-                ...toResponseInputItems(response.output),
-            );
+            const call = calls[0];
 
-            for (const call of calls) {
-                if (
-                    !allowedNames.has(call.name)
-                    || executed.has(call.name)
-                ) {
-                    throw new ReplanningError(
-                        502,
-                        'La IA solicitó una herramienta no permitida o repetida.',
-                    );
-                }
+            if (!call) {
+                throw new ReplanningError(
+                    502,
+                    'La IA no devolvió una llamada de herramienta válida.',
+                );
+            }
 
-                if (
-                    call.name === 'calcular_desvio'
-                    && !executed.has(
-                        'consultar_incidentes',
-                    )
-                ) {
-                    throw new ReplanningError(
-                        502,
-                        'Falta consultar los incidentes antes del cálculo.',
-                    );
-                }
+            if (
+                !allowedNames.has(call.name)
+                || executed.has(call.name)
+            ) {
+                throw new ReplanningError(
+                    502,
+                    'La IA solicitó una herramienta no permitida o repetida.',
+                );
+            }
 
-                let argumentsValue: unknown;
+            if (
+                round === 0
+                && call.name !== 'consultar_incidentes'
+            ) {
+                throw new ReplanningError(
+                    502,
+                    'Falta consultar los incidentes antes del cálculo.',
+                );
+            }
 
-                try {
-                    argumentsValue =
-                        JSON.parse(call.arguments);
-                } catch {
-                    throw new ReplanningError(
-                        502,
-                        'La IA devolvió argumentos inválidos.',
-                    );
-                }
+            if (
+                call.name === 'calcular_desvio'
+                && !executed.has('consultar_incidentes')
+            ) {
+                throw new ReplanningError(
+                    502,
+                    'Falta consultar los incidentes antes del cálculo.',
+                );
+            }
 
-                // El backend fija también la fecha.
-                // La IA no puede cambiar el contexto.
-                if (
-                    !argumentsValue
-                    || typeof argumentsValue !== 'object'
-                    || Array.isArray(argumentsValue)
-                    || Object.keys(argumentsValue).length !== 0
-                ) {
-                    throw new ReplanningError(
-                        502,
-                        'La IA intentó modificar el contexto de la simulación.',
-                    );
-                }
+            // Claude entrega los argumentos como un objeto.
+            // El contexto sigue siendo exclusivo del backend.
+            const argumentsValue = call.input;
 
-                const result =
-                    await session.client.callTool({
-                        name: call.name,
-                        arguments: {},
-                    });
+            if (
+                !argumentsValue
+                || typeof argumentsValue !== 'object'
+                || Array.isArray(argumentsValue)
+                || Object.keys(argumentsValue).length !== 0
+            ) {
+                throw new ReplanningError(
+                    502,
+                    'La IA intentó modificar el contexto de la simulación.',
+                );
+            }
 
-                executed.add(call.name);
-
-                toolCalls.push({
+            const result =
+                await session.client.callTool({
                     name: call.name,
-                    success: !result.isError,
+                    arguments: {},
                 });
 
-                input.push({
-                    type: 'function_call_output',
-                    call_id: call.call_id,
-                    output: JSON.stringify({
-                        isError:
-                            result.isError ?? false,
-                        data:
-                            result.structuredContent
-                            ?? result.content,
-                    }),
-                });
+            executed.add(call.name);
 
-                if (
-                    call.name === 'consultar_incidentes'
-                    && result.isError
-                ) {
-                    throw new ReplanningError(
-                        502,
-                        'No se pudieron consultar los incidentes mediante MCP.',
-                    );
-                }
+            toolCalls.push({
+                name: call.name,
+                success: !result.isError,
+            });
+
+            // Conserva la respuesta del asistente y vincula
+            // el resultado con el ID de la llamada original.
+            messages.push({
+                role: 'assistant',
+                content: response.content,
+            });
+
+            messages.push({
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: call.id,
+                        is_error: result.isError ?? false,
+                        content: JSON.stringify({
+                            isError: result.isError ?? false,
+                            data:
+                                result.structuredContent
+                                ?? result.content,
+                        }),
+                    },
+                ],
+            });
+
+            if (
+                call.name === 'consultar_incidentes'
+                && result.isError
+            ) {
+                throw new ReplanningError(
+                    502,
+                    'No se pudieron consultar los incidentes mediante MCP.',
+                );
             }
         }
 
@@ -381,8 +464,6 @@ export async function replanRoute(
             'Se alcanzó el límite de consultas de la evaluación.',
         );
     } finally {
-        await session.close().catch(
-            () => undefined,
-        );
+        await session.close().catch(() => undefined);
     }
 }
