@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:check": "tsx src/scripts/check-db.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "npm run network:unpack"
   },
   "repository": {
     "type": "git",
