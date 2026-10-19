@@ -28,6 +28,10 @@ type Snapshot = {
   remainingCoordinates: Coordinate[]
 }
 
+// Tolerancia para pequeñas diferencias de precisión entre coordenadas.
+// No permite conectar calles distintas mediante un segmento artificial.
+const MAX_START_GAP_METERS = 1
+
 const initialSnapshot: Snapshot = {
   status: 'empty',
   elapsedSeconds: 0,
@@ -79,11 +83,73 @@ export function useRobotSimulation(speedKmh: number) {
     route: SimulationRoute,
     preserveProgress = false,
   ) => {
-    cancelFrame()
+    if (
+      !Number.isFinite(route.distanceMeters) ||
+      route.distanceMeters < 0
+    ) {
+      throw new Error('La ruta tiene una distancia inválida.')
+    }
 
-    const path = buildPath(route.geometry.coordinates)
     const current = snapshotRef.current
-    const position = samplePath(path, 0)
+    let coordinates = route.geometry.coordinates
+
+    if (preserveProgress) {
+      const currentPosition = current.position
+      const first = coordinates[0]
+
+      if (!currentPosition || !first) {
+        throw new Error(
+          'No se pudo comprobar el inicio del desvío.',
+        )
+      }
+
+      // El proveedor puede ajustar el origen a otro camino.
+      // Conservar los acumulados no alcanza: también necesitamos
+      // comprobar que el recorrido empiece donde está el robot.
+      const gapMeters = buildPath([
+        currentPosition,
+        first,
+      ]).lengthMeters
+
+      if (
+        !Number.isFinite(gapMeters) ||
+        gapMeters > MAX_START_GAP_METERS
+      ) {
+        console.warn(
+          'Desvío descartado por falta de continuidad:',
+          {
+            currentPosition,
+            routeStart: first,
+            gapMeters,
+          },
+        )
+
+        throw new Error(
+          `El desvío comienza a ${gapMeters.toFixed(1)} m del robot. ` +
+          'No se aplicó porque no conecta con su posición actual.',
+        )
+      }
+
+      // Solo corregimos diferencias dentro de la tolerancia.
+      // La copia evita modificar la respuesta recibida del backend.
+      coordinates = [
+        [currentPosition[0], currentPosition[1]],
+        ...coordinates.slice(1),
+      ]
+    }
+
+    const path = buildPath(coordinates)
+    const sampled = samplePath(path, 0)
+
+    if (!sampled.position) {
+      throw new Error(
+        'La ruta no contiene un recorrido válido.',
+      )
+    }
+
+    // La ruta anterior no se reemplaza hasta terminar la validación.
+    // Si el desvío se rechaza, se conservan la posición y el progreso.
+    cancelFrame()
 
     pathRef.current = path
     routeDistanceRef.current = route.distanceMeters
@@ -96,12 +162,14 @@ export function useRobotSimulation(speedKmh: number) {
           : preserveProgress
             ? 'paused'
             : 'ready',
-      elapsedSeconds: preserveProgress ? current.elapsedSeconds : 0,
-      traveledMeters: preserveProgress ? current.traveledMeters : 0,
+      elapsedSeconds:
+        preserveProgress ? current.elapsedSeconds : 0,
+      traveledMeters:
+        preserveProgress ? current.traveledMeters : 0,
       remainingMeters:
         path.lengthMeters === 0 ? 0 : route.distanceMeters,
-      position: position.position,
-      remainingCoordinates: position.remainingCoordinates,
+      position: sampled.position,
+      remainingCoordinates: sampled.remainingCoordinates,
     })
   }, [cancelFrame, publish])
 
@@ -138,8 +206,12 @@ export function useRobotSimulation(speedKmh: number) {
         ? routeTraveledRef.current / routeDistanceRef.current
         : 1
 
+    // Seguimos el orden de las coordenadas, incluso cuando
+    // el desvío exige retroceder por una calle ya recorrida.
     const sampled = samplePath(path, progress)
-    const completed = routeTraveledRef.current >= routeDistanceRef.current
+
+    const completed =
+      routeTraveledRef.current >= routeDistanceRef.current
 
     publish({
       status: completed ? 'completed' : current.status,
@@ -174,7 +246,11 @@ export function useRobotSimulation(speedKmh: number) {
     function frame(now: number) {
       if (snapshotRef.current.status !== 'running') return
 
-      const realSeconds = Math.max(0, (now - previousTime) / 1000)
+      const realSeconds = Math.max(
+        0,
+        (now - previousTime) / 1000,
+      )
+
       previousTime = now
 
       advance(realSeconds * multiplierRef.current)
@@ -201,7 +277,10 @@ export function useRobotSimulation(speedKmh: number) {
     setMultiplierState(value)
   }, [])
 
-  const getSnapshot = useCallback(() => snapshotRef.current, [])
+  const getSnapshot = useCallback(
+    () => snapshotRef.current,
+    [],
+  )
 
   return {
     ...snapshot,

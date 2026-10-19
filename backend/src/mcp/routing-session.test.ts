@@ -7,6 +7,7 @@ import {
 import {
     createRoutingMcpSession,
 } from './routing-session';
+import { pedestrianNetwork, resolvePedestrianSelection } from '../services/pedestrian-network';
 import type {
     RoutingServices,
 } from './routing-session';
@@ -32,6 +33,10 @@ const context = {
 const incident: Incident = {
     id: 'f88bbd1b-dc80-4339-b734-a82b717d51db',
     simulationId: context.simulationId,
+    description: 'Bloqueo de prueba.',
+    effect: 'blockage',
+    reporterName: 'RR-TEST',
+    startsAt: new Date('2026-10-17T12:00:00.000Z'),
     type: 'blockage',
     source: 'simulation',
     blockedArea: {
@@ -109,7 +114,10 @@ describe('Herramientas MCP de RouteRobots', () => {
 
             expect(
                 services.listActiveIncidents,
-            ).toHaveBeenCalledWith(context.simulationId);
+            ).toHaveBeenCalledWith(
+                context.simulationId,
+                expect.any(String),
+            );
         } finally {
             await session.close();
         }
@@ -210,5 +218,36 @@ describe('Herramientas MCP de RouteRobots', () => {
         } finally {
             await session.close();
         }
+    });
+});
+
+describe('MCP con bloqueos de tramos', () => {
+    it('envía IDs al grafo y no convierte la vereda en un rectángulo bloqueado', async () => {
+        const services = createServices();
+        const impact = resolvePedestrianSelection({ networkVersion: pedestrianNetwork.version,
+            scope: 'segment', segmentIds: [pedestrianNetwork.segments[0]!.id] });
+        services.listActiveIncidents.mockResolvedValue([{ ...incident, pedestrianImpact: impact }]);
+        const session = await createRoutingMcpSession({ ...context, networkVersion: pedestrianNetwork.version }, services);
+        try {
+            const result = await session.client.callTool({ name: 'calcular_desvio', arguments: {} });
+            expect(result.isError).not.toBe(true);
+            expect(services.calculateRoute).toHaveBeenCalledWith({
+                origin: context.origin, destination: context.destination,
+                blockedAreas: [], blockedSegmentIds: impact.segmentIds,
+                networkVersion: pedestrianNetwork.version, strictOrigin: true,
+            });
+        } finally { await session.close(); }
+    });
+    it('no omite un cierre de vereda si el encargo usa el proveedor general', async () => {
+        const services = createServices();
+        const impact = resolvePedestrianSelection({ networkVersion: pedestrianNetwork.version,
+            scope: 'segment', segmentIds: [pedestrianNetwork.segments[0]!.id] });
+        services.listActiveIncidents.mockResolvedValue([{ ...incident, pedestrianImpact: impact }]);
+        const session = await createRoutingMcpSession(context, services);
+        try {
+            const result = await session.client.callTool({ name: 'calcular_desvio', arguments: {} });
+            expect(result.isError).toBe(true);
+            expect(services.calculateRoute).not.toHaveBeenCalled();
+        } finally { await session.close(); }
     });
 });

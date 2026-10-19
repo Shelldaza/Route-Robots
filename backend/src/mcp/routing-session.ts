@@ -7,10 +7,11 @@ import {
     McpServer,
 } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+
 import {
-    pointSchema,
     RoutingError,
 } from '../services/routing';
+
 import type {
     CalculatedRoute,
 } from '../services/routing';
@@ -18,17 +19,23 @@ import type {
     Incident,
 } from '../services/incidents';
 
-const contextSchema = z.object({
-    simulationId: z.string().uuid(),
-    origin: pointSchema,
-    destination: pointSchema,
-});
+import {
+    routingContextSchema,
+} from '../schemas/routing-context';
+import type {
+    RoutingContext,
+} from '../schemas/routing-context';
 
-export type RoutingContext = z.infer<typeof contextSchema>;
+// Conserva los imports existentes de este tipo
+// desde otros archivos del proyecto.
+export type {
+    RoutingContext,
+} from '../schemas/routing-context';
 
 export type RoutingServices = {
     listActiveIncidents: (
         simulationId: string,
+        scenarioTime?: string,
     ) => Promise<Incident[]>;
 
     calculateRoute: (
@@ -56,7 +63,15 @@ export async function createRoutingMcpSession(
     value: RoutingContext,
     services: RoutingServices,
 ) {
-    const context = contextSchema.parse(value);
+    const parsed = routingContextSchema.parse(value);
+
+    // Si la sesión se utiliza directamente, también fija
+    // una sola fecha para todas sus herramientas.
+    const context = {
+        ...parsed,
+        scenarioTime:
+            parsed.scenarioTime ?? new Date().toISOString(),
+    };
 
     let candidate: {
         route: CalculatedRoute;
@@ -73,7 +88,7 @@ export async function createRoutingMcpSession(
             'consultar_incidentes',
             {
                 description:
-                    'Consulta los incidentes activos de la simulación actual. No consulta otras simulaciones.',
+                    'Consulta los bloqueos activos de la simulación en la fecha fijada por el backend. No consulta otras simulaciones ni modifica la fecha.',
                 inputSchema: z.object({}).strict(),
             },
             async () => {
@@ -81,10 +96,12 @@ export async function createRoutingMcpSession(
                     const incidents =
                         await services.listActiveIncidents(
                             context.simulationId,
+                            context.scenarioTime,
                         );
 
                     return toolResult({
                         status: 'ok',
+                        scenarioTime: context.scenarioTime,
                         incidents,
                     });
                 } catch {
@@ -104,7 +121,7 @@ export async function createRoutingMcpSession(
             'calcular_desvio',
             {
                 description:
-                    'Calcula una alternativa entre los puntos actuales evitando todos los incidentes activos de la simulación. El servicio valida que no atraviese los bloqueos. No aplica la ruta ni mueve al robot.',
+                    'Calcula una alternativa entre los puntos fijados por el backend evitando todos los bloqueos activos en la fecha del escenario. El servicio valida que no atraviese los bloqueos. No aplica la ruta ni mueve al robot.',
                 inputSchema: z.object({}).strict(),
             },
             async () => {
@@ -114,6 +131,7 @@ export async function createRoutingMcpSession(
                     const incidents =
                         await services.listActiveIncidents(
                             context.simulationId,
+                            context.scenarioTime,
                         );
 
                     if (incidents.length === 0) {
@@ -121,19 +139,34 @@ export async function createRoutingMcpSession(
                             {
                                 status: 'no_active_incidents',
                                 message:
-                                    'No hay bloqueos activos para calcular un desvío.',
+                                    'No hay bloqueos activos para calcular un desvío en ese momento del escenario.',
                             },
                             true,
                         );
                     }
 
-                    const route = await services.calculateRoute({
-                        origin: context.origin,
-                        destination: context.destination,
-                        blockedAreas: incidents.map(
-                            (incident) => incident.blockedArea,
-                        ),
-                    });
+                    if (!context.networkVersion && incidents.some((incident) => incident.pedestrianImpact)) {
+                        throw new RoutingError(400, 'Los incidentes de vereda requieren una entrega en el sandbox peatonal.');
+                    }
+                    const route =
+                        await services.calculateRoute({
+                            origin: context.origin,
+                            destination: context.destination,
+                            blockedAreas: incidents.filter((incident) => !incident.pedestrianImpact).map(
+                                (incident) =>
+                                    incident.blockedArea,
+                            ),
+                            ...(context.networkVersion ? {
+                                networkVersion: context.networkVersion,
+                                strictOrigin: true,
+                                blockedSegmentIds: [...new Set(incidents.flatMap((incident) => {
+                                    if (incident.pedestrianImpact && incident.pedestrianImpact.networkVersion !== context.networkVersion) {
+                                        throw new RoutingError(409, 'Hay incidentes de otra versión de red. Iniciá un escenario nuevo.');
+                                    }
+                                    return incident.pedestrianImpact?.segmentIds ?? [];
+                                }))],
+                            } : {}),
+                        });
 
                     const incidentIds = incidents.map(
                         (incident) => incident.id,
@@ -145,9 +178,10 @@ export async function createRoutingMcpSession(
                     };
 
                     // La geometría queda en el backend.
-                    // El modelo recibe el resumen de la operación.
+                    // El modelo recibe solo el resumen.
                     return toolResult({
                         status: 'alternative_calculated',
+                        scenarioTime: context.scenarioTime,
                         distanceMeters: route.distanceMeters,
                         durationSeconds: route.durationSeconds,
                         profile: route.profile,
@@ -183,13 +217,14 @@ export async function createRoutingMcpSession(
         },
     );
 
-    const transport = new StreamableHTTPClientTransport(
-        new URL('http://routerobots.internal/mcp'),
-        {
-            fetch: (url, init) =>
-                handler.fetch(new Request(url, init)),
-        },
-    );
+    const transport =
+        new StreamableHTTPClientTransport(
+            new URL('http://routerobots.internal/mcp'),
+            {
+                fetch: (url, init) =>
+                    handler.fetch(new Request(url, init)),
+            },
+        );
 
     try {
         await client.connect(transport);

@@ -1,12 +1,15 @@
 import { z } from 'zod';
 import { routeIntersectsBlockedAreas } from './route-geometry';
 
+import { pedestrianNetwork, routeOnPedestrianNetwork } from './pedestrian-network';
+
+const ROUTING_TIMEOUT_MS = 15000;
+
 export const pointSchema = z.object({
     lat: z.number().finite().min(-90).max(90),
     lng: z.number().finite().min(-180).max(180),
 });
 
-// Rectángulo que representa una zona bloqueada.
 export const blockedAreaSchema = z
     .object({
         south: z.number().finite().min(-90).max(90),
@@ -17,7 +20,8 @@ export const blockedAreaSchema = z
     .refine(
         (area) => area.south < area.north && area.west < area.east,
         {
-            message: 'La zona bloqueada debe tener límites ordenados y un área mayor que cero.',
+            message:
+                'La zona bloqueada debe tener límites ordenados y un área mayor que cero.',
         },
     );
 
@@ -25,6 +29,9 @@ export const routeRequestSchema = z.object({
     origin: pointSchema,
     destination: pointSchema,
     blockedAreas: z.array(blockedAreaSchema).max(10).optional(),
+    networkVersion: z.string().optional(),
+    blockedSegmentIds: z.array(z.string()).max(300).optional(),
+    strictOrigin: z.boolean().optional(),
 });
 
 const coordinateSchema = z.tuple([
@@ -59,6 +66,9 @@ export type CalculatedRoute = {
     distanceMeters: number;
     durationSeconds: number;
     profile: 'foot-walking';
+    networkVersion?: string;
+    provider?: 'pedestrian-sandbox';
+    segmentIds?: string[];
 };
 
 export class RoutingError extends Error {
@@ -72,8 +82,7 @@ export class RoutingError extends Error {
 }
 
 function areaToCoordinates(area: BlockedArea): [number, number][][] {
-    // GeoJSON utiliza [longitud, latitud].
-    // La última coordenada cierra el rectángulo.
+    // GeoJSON usa [longitud, latitud] y exige cerrar cada anillo.
     return [
         [
             [area.west, area.south],
@@ -97,6 +106,20 @@ export async function calculateRoute(
         );
     }
 
+    if (parsedInput.data.networkVersion) {
+        if (parsedInput.data.networkVersion !== pedestrianNetwork.version) {
+            throw new RoutingError(409, 'La red peatonal cambió. Recargá el escenario.');
+        }
+        try {
+            return routeOnPedestrianNetwork(parsedInput.data);
+        } catch (error) {
+            throw new RoutingError(422, error instanceof Error ? error.message : 'No se pudo calcular la ruta peatonal.');
+        }
+    }
+    if (parsedInput.data.blockedSegmentIds?.length) {
+        throw new RoutingError(400, 'Los bloqueos de vereda requieren el modo sandbox peatonal.');
+    }
+
     const apiKey = process.env.ORS_API_KEY?.trim();
 
     if (!apiKey) {
@@ -107,6 +130,7 @@ export async function calculateRoute(
     }
 
     const { origin, destination, blockedAreas } = parsedInput.data;
+    const hasBlockedAreas = (blockedAreas?.length ?? 0) > 0;
 
     const requestBody = {
         coordinates: [
@@ -114,17 +138,24 @@ export async function calculateRoute(
             [destination.lng, destination.lat],
         ],
         instructions: false,
+        // Durante un desvío, el origen es la posición del robot sobre
+        // una ruta existente. No debe ajustarse a otra calle cercana.
+        ...(hasBlockedAreas
+            ? { radiuses: [1, -1] }
+            : {}),
         ...(blockedAreas && blockedAreas.length > 0
             ? {
-                  options: {
-                      avoid_polygons: {
-                          type: 'MultiPolygon',
-                          coordinates: blockedAreas.map(areaToCoordinates),
-                      },
-                  },
-              }
+                options: {
+                    avoid_polygons: {
+                        type: 'MultiPolygon',
+                        coordinates: blockedAreas.map(areaToCoordinates),
+                    },
+                },
+            }
             : {}),
     };
+
+    const startedAt = performance.now();
 
     try {
         const response = await fetch(
@@ -136,22 +167,34 @@ export async function calculateRoute(
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(requestBody),
-                signal: AbortSignal.timeout(15000),
+                signal: AbortSignal.timeout(ROUTING_TIMEOUT_MS),
             },
         );
 
         if (!response.ok) {
-            console.error(
-                'Error del servicio de rutas. Estado HTTP:',
-                response.status,
-            );
+            // El detalle queda en el backend; permite distinguir un rechazo
+            // del cálculo de un problema de disponibilidad del proveedor.
+            const providerError: unknown = await response
+                .json()
+                .catch(() => null);
+
+            console.error('OpenRouteService rechazó la solicitud:', {
+                status: response.status,
+                elapsedMs: Math.round(performance.now() - startedAt),
+                hasBlockedAreas,
+                details: providerError,
+            });
 
             const message =
                 response.status === 401 || response.status === 403
                     ? 'OpenRouteService rechazó la clave o los permisos.'
                     : response.status === 429
-                      ? 'Se alcanzó el límite de consultas del servicio de rutas.'
-                      : 'El servicio no pudo calcular la ruta con las restricciones indicadas.';
+                        ? 'Se alcanzó el límite de consultas del servicio de rutas.'
+                        : response.status >= 500
+                            ? 'El servicio de rutas presentó un error. Reintentá.'
+                            : hasBlockedAreas
+                                ? 'El servicio no pudo calcular la ruta con las restricciones indicadas.'
+                                : 'El servicio no pudo calcular la ruta entre esos puntos. Probá puntos cercanos sobre caminos.';
 
             throw new RoutingError(502, message);
         }
@@ -174,6 +217,9 @@ export async function calculateRoute(
                 'No se encontró una ruta entre esos puntos.',
             );
         }
+
+        // Evitar polígonos es una instrucción al proveedor. Comprobamos
+        // también la geometría recibida antes de aceptar un desvío.
         if (
             routeIntersectsBlockedAreas(
                 route.geometry.coordinates,
@@ -199,6 +245,20 @@ export async function calculateRoute(
 
         const timedOut =
             error instanceof Error && error.name === 'TimeoutError';
+
+        // No registramos la clave ni los encabezados. La causa puede
+        // identificar problemas de DNS, conexión o certificados.
+        console.error('Falló la consulta a OpenRouteService:', {
+            name: error instanceof Error ? error.name : 'UnknownError',
+            message:
+                error instanceof Error
+                    ? error.message
+                    : 'Error desconocido',
+            cause: error instanceof Error ? error.cause : undefined,
+            elapsedMs: Math.round(performance.now() - startedAt),
+            timeoutMs: ROUTING_TIMEOUT_MS,
+            hasBlockedAreas,
+        });
 
         throw new RoutingError(
             timedOut ? 504 : 502,

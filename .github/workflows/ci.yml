@@ -6,6 +6,7 @@ on:
   push:
     branches: [main, develop]
   workflow_dispatch:
+
 permissions:
   contents: read
 
@@ -38,8 +39,8 @@ jobs:
 
       - name: Comprobar tipos y compilar
         run: npm run build
-        
-      - name: Probar estimaciones del recorrido
+
+      - name: Ejecutar pruebas del frontend
         run: npm test
 
   backend:
@@ -64,12 +65,12 @@ jobs:
 
       - name: Instalar dependencias
         run: npm ci --include=dev
+      
+      - name: Preparar red peatonal compacta
+        run: npm run network:unpack
 
       - name: Comprobar tipos
         run: npm run typecheck
-        
-      - name: Comprobar tipos
-        run: npm run typecheck
 
-      - name: Ejecutar pruebas de la API
+      - name: Ejecutar pruebas del backend
         run: npm test

@@ -1,13 +1,14 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
-import { z } from 'zod';
+import Anthropic from '@anthropic-ai/sdk';
 import {
     replanRoute,
     ReplanningError,
 } from '../agents/replanning';
 import {
+    routingContextSchema,
+} from '../schemas/routing-context';
+import {
     calculateRoute,
-    pointSchema,
 } from '../services/routing';
 import {
     listActiveIncidents,
@@ -15,28 +16,26 @@ import {
 
 export const replanningRouter = Router();
 
-const requestSchema = z.object({
-    simulationId: z.string().uuid(),
-    origin: pointSchema,
-    destination: pointSchema,
-});
-
 replanningRouter.post('/', async (req, res) => {
-    const input = requestSchema.safeParse(req.body);
+    const input =
+        routingContextSchema.safeParse(req.body);
 
     if (!input.success) {
         res.status(400).json({
             message:
-                'Enviá una simulación, un origen y un destino válidos.',
+                'Enviá una simulación, un origen, un destino y una fecha de escenario válidos.',
         });
         return;
     }
 
     try {
-        const result = await replanRoute(input.data, {
-            calculateRoute,
-            listActiveIncidents,
-        });
+        const result = await replanRoute(
+            input.data,
+            {
+                calculateRoute,
+                listActiveIncidents,
+            },
+        );
 
         res.status(200).json(result);
     } catch (error) {
@@ -47,11 +46,10 @@ replanningRouter.post('/', async (req, res) => {
             return;
         }
 
-        if (error instanceof OpenAI.APIError) {
+        if (error instanceof Anthropic.APIError) {
             console.error(
-                'Error de OpenAI durante la replanificación:',
+                'Error de Claude durante la replanificación:',
                 error.status,
-                error.code,
             );
 
             res.status(502).json({
@@ -61,10 +59,13 @@ replanningRouter.post('/', async (req, res) => {
             return;
         }
 
-        console.error('Error inesperado durante la replanificación.');
+        console.error(
+            'Error inesperado durante la replanificación.',
+        );
 
         res.status(500).json({
-            message: 'No se pudo completar la replanificación.',
+            message:
+                'No se pudo completar la replanificación.',
         });
     }
 });

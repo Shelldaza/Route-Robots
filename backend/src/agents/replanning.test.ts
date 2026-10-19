@@ -17,14 +17,14 @@ import type {
 } from '../services/incidents';
 
 const {
-    responsesMock,
+    messagesMock,
     createSessionMock,
     listToolsMock,
     callToolMock,
     candidateMock,
     closeMock,
 } = vi.hoisted(() => ({
-    responsesMock: vi.fn(),
+    messagesMock: vi.fn(),
     createSessionMock: vi.fn(),
     listToolsMock: vi.fn(),
     callToolMock: vi.fn(),
@@ -32,10 +32,10 @@ const {
     closeMock: vi.fn(),
 }));
 
-vi.mock('openai', () => ({
+vi.mock('@anthropic-ai/sdk', () => ({
     default: class {
-        responses = {
-            create: responsesMock,
+        messages = {
+            create: messagesMock,
         };
     },
 }));
@@ -58,12 +58,17 @@ const context = {
         lat: 38.91,
         lng: -77.03,
     },
+    scenarioTime: '2026-10-17T12:05:00.000Z',
 };
 
 const incident: Incident = {
     id: 'f88bbd1b-dc80-4339-b734-a82b717d51db',
     simulationId: context.simulationId,
     type: 'blockage',
+    description: 'Bloqueo de prueba.',
+    effect: 'blockage',
+    reporterName: 'RR-TEST',
+    startsAt: new Date('2026-10-17T12:00:00.000Z'),
     source: 'simulation',
     blockedArea: {
         south: 38.908,
@@ -71,8 +76,8 @@ const incident: Incident = {
         north: 38.909,
         east: -77.034,
     },
-    createdAt: new Date('2026-10-17T04:00:00Z'),
-    expiresAt: new Date('2026-10-17T04:15:00Z'),
+    createdAt: new Date('2026-10-17T12:00:00.000Z'),
+    expiresAt: new Date('2026-10-17T12:15:00.000Z'),
 };
 
 const alternative: CalculatedRoute = {
@@ -104,34 +109,37 @@ function createServices() {
 function toolResponse(
     name: string,
     callId: string,
+    input: unknown = {},
 ) {
     return {
-        status: 'completed',
-        output_text: '',
-        output: [
+        stop_reason: 'tool_use',
+        content: [
             {
-                type: 'function_call',
-                id: `fc_${callId}`,
-                call_id: callId,
+                type: 'tool_use',
+                id: callId,
                 name,
-                arguments: '{}',
-                status: 'completed',
+                input,
             },
         ],
     };
 }
 
-function finalResponse() {
+function finalResponse(
+    text = 'Se obtuvo una alternativa de 1100 metros evitando el bloqueo.',
+) {
     return {
-        status: 'completed',
-        output: [],
-        output_text:
-            'Se obtuvo una alternativa de 1100 metros evitando el bloqueo.',
+        stop_reason: 'end_turn',
+        content: [
+            {
+                type: 'text',
+                text,
+            },
+        ],
     };
 }
 
 function queueSuccessfulEvaluation() {
-    responsesMock
+    messagesMock
         .mockResolvedValueOnce(
             toolResponse('consultar_incidentes', 'call_1'),
         )
@@ -141,18 +149,23 @@ function queueSuccessfulEvaluation() {
         .mockResolvedValueOnce(finalResponse());
 }
 
-describe('Agente de replanificación', () => {
+describe('Agente de replanificación con Claude', () => {
     beforeEach(() => {
-        responsesMock.mockReset();
+        messagesMock.mockReset();
         createSessionMock.mockReset();
         listToolsMock.mockReset();
         callToolMock.mockReset();
         candidateMock.mockReset();
         closeMock.mockReset();
 
-        // Las pruebas nunca utilizan la clave real.
-        vi.stubEnv('OPENAI_API_KEY', 'clave-falsa-de-prueba');
-        vi.stubEnv('OPENAI_MODEL', 'modelo-de-prueba');
+        vi.stubEnv(
+            'ANTHROPIC_API_KEY',
+            'clave-falsa-de-prueba',
+        );
+        vi.stubEnv(
+            'ANTHROPIC_MODEL',
+            'modelo-de-prueba',
+        );
 
         listToolsMock.mockResolvedValue({
             tools: [
@@ -213,7 +226,7 @@ describe('Agente de replanificación', () => {
         vi.unstubAllEnvs();
     });
 
-    it('devuelve la geometría del backend y completa la evaluación en tres consultas', async () => {
+    it('devuelve la geometría del backend en tres consultas y conserva la fecha', async () => {
         const services = createServices();
         queueSuccessfulEvaluation();
 
@@ -222,6 +235,7 @@ describe('Agente de replanificación', () => {
         expect(result.status).toBe('alternative_ready');
         expect(result.route).toEqual(alternative);
         expect(result.incidentIds).toEqual([incident.id]);
+        expect(result.scenarioTime).toBe(context.scenarioTime);
 
         expect(result.toolCalls).toEqual([
             {
@@ -234,22 +248,73 @@ describe('Agente de replanificación', () => {
             },
         ]);
 
-        expect(responsesMock).toHaveBeenCalledTimes(3);
+        expect(messagesMock).toHaveBeenCalledTimes(3);
 
-        expect(responsesMock).toHaveBeenLastCalledWith(
+        expect(messagesMock).toHaveBeenNthCalledWith(
+            1,
             expect.objectContaining({
-                tool_choice: 'none',
-                parallel_tool_calls: false,
-                max_output_tokens: 400,
+                model: 'modelo-de-prueba',
+                tool_choice: {
+                    type: 'tool',
+                    name: 'consultar_incidentes',
+                    disable_parallel_tool_use: true,
+                },
             }),
         );
+
+        expect(messagesMock).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                tool_choice: {
+                    type: 'none',
+                },
+                thinking: {
+                    type: 'disabled',
+                },
+                max_tokens: 400,
+                messages: expect.arrayContaining([
+                    {
+                        role: 'user',
+                        content: [
+                            expect.objectContaining({
+                                type: 'tool_result',
+                                tool_use_id: 'call_1',
+                                is_error: false,
+                            }),
+                        ],
+                    },
+                    {
+                        role: 'user',
+                        content: [
+                            expect.objectContaining({
+                                type: 'tool_result',
+                                tool_use_id: 'call_2',
+                                is_error: false,
+                            }),
+                        ],
+                    },
+                ]),
+            }),
+        );
+
+        expect(services.listActiveIncidents)
+            .toHaveBeenNthCalledWith(
+                1,
+                context.simulationId,
+                context.scenarioTime,
+            );
+
+        expect(services.listActiveIncidents)
+            .toHaveBeenNthCalledWith(
+                2,
+                context.simulationId,
+                context.scenarioTime,
+            );
 
         expect(closeMock).toHaveBeenCalledTimes(1);
     });
 
-    it('no consume consultas de IA cuando no hay bloqueos activos', async () => {
+    it('no consume IA cuando no hay bloqueos activos', async () => {
         const services = createServices();
-
         services.listActiveIncidents.mockResolvedValue([]);
 
         await expect(
@@ -258,14 +323,12 @@ describe('Agente de replanificación', () => {
             statusCode: 409,
         });
 
-        expect(responsesMock).not.toHaveBeenCalled();
+        expect(messagesMock).not.toHaveBeenCalled();
         expect(createSessionMock).not.toHaveBeenCalled();
     });
 
     it('rechaza una herramienta repetida sin volver a ejecutarla', async () => {
-        const services = createServices();
-
-        responsesMock
+        messagesMock
             .mockResolvedValueOnce(
                 toolResponse('consultar_incidentes', 'call_1'),
             )
@@ -274,17 +337,17 @@ describe('Agente de replanificación', () => {
             );
 
         await expect(
-            replanRoute(context, services),
+            replanRoute(context, createServices()),
         ).rejects.toMatchObject({
             statusCode: 502,
         });
 
         expect(callToolMock).toHaveBeenCalledTimes(1);
-        expect(responsesMock).toHaveBeenCalledTimes(2);
+        expect(messagesMock).toHaveBeenCalledTimes(2);
         expect(closeMock).toHaveBeenCalledTimes(1);
     });
 
-    it('rechaza una alternativa si los incidentes cambiaron durante la evaluación', async () => {
+    it('rechaza la alternativa si cambiaron los incidentes', async () => {
         const services = createServices();
 
         services.listActiveIncidents
@@ -304,21 +367,21 @@ describe('Agente de replanificación', () => {
         expect(closeMock).toHaveBeenCalledTimes(1);
     });
 
-    it('no convierte una explicación del modelo en una ruta inexistente', async () => {
-        const services = createServices();
-
-        responsesMock
+    it('no convierte una explicación en una ruta inexistente', async () => {
+        messagesMock
             .mockResolvedValueOnce(
                 toolResponse('consultar_incidentes', 'call_1'),
             )
-            .mockResolvedValueOnce({
-                status: 'completed',
-                output: [],
-                output_text:
+            .mockResolvedValueOnce(
+                finalResponse(
                     'No se obtuvo una alternativa validada.',
-            });
+                ),
+            );
 
-        const result = await replanRoute(context, services);
+        const result = await replanRoute(
+            context,
+            createServices(),
+        );
 
         expect(result.status).toBe('not_replanned');
         expect(result.route).toBeNull();
@@ -326,10 +389,8 @@ describe('Agente de replanificación', () => {
         expect(closeMock).toHaveBeenCalledTimes(1);
     });
 
-    it('detiene el flujo si falla la consulta MCP de incidentes', async () => {
-        const services = createServices();
-
-        responsesMock.mockResolvedValueOnce(
+    it('detiene el flujo si falla la consulta MCP', async () => {
+        messagesMock.mockResolvedValueOnce(
             toolResponse('consultar_incidentes', 'call_1'),
         );
 
@@ -342,13 +403,92 @@ describe('Agente de replanificación', () => {
         });
 
         await expect(
-            replanRoute(context, services),
+            replanRoute(context, createServices()),
         ).rejects.toMatchObject({
             statusCode: 502,
         });
 
-        expect(responsesMock).toHaveBeenCalledTimes(1);
+        expect(messagesMock).toHaveBeenCalledTimes(1);
         expect(callToolMock).toHaveBeenCalledTimes(1);
         expect(closeMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('impide modificar el contexto mediante argumentos', async () => {
+        messagesMock.mockResolvedValueOnce(
+            toolResponse(
+                'consultar_incidentes',
+                'call_1',
+                { simulationId: 'otra-simulacion' },
+            ),
+        );
+
+        await expect(
+            replanRoute(context, createServices()),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+        });
+
+        expect(callToolMock).not.toHaveBeenCalled();
+        expect(closeMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('rechaza una respuesta truncada por el límite de tokens', async () => {
+        messagesMock.mockResolvedValueOnce({
+            stop_reason: 'max_tokens',
+            content: [],
+        });
+
+        await expect(
+            replanRoute(context, createServices()),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            message:
+                'La IA no completó la evaluación. No se modificó la ruta.',
+        });
+
+        expect(callToolMock).not.toHaveBeenCalled();
+        expect(closeMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('rechaza calcular antes de consultar los incidentes', async () => {
+        messagesMock.mockResolvedValueOnce(
+            toolResponse('calcular_desvio', 'call_1'),
+        );
+
+        await expect(
+            replanRoute(context, createServices()),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+        });
+
+        expect(callToolMock).not.toHaveBeenCalled();
+        expect(closeMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('informa si falta la clave sin llamar a Claude', async () => {
+        vi.stubEnv('ANTHROPIC_API_KEY', '');
+
+        await expect(
+            replanRoute(context, createServices()),
+        ).rejects.toMatchObject({
+            statusCode: 503,
+        });
+
+        expect(messagesMock).not.toHaveBeenCalled();
+        expect(createSessionMock).not.toHaveBeenCalled();
+    });
+
+    it('usa Haiku por defecto si no se configuró un modelo', async () => {
+        vi.stubEnv('ANTHROPIC_MODEL', '');
+        queueSuccessfulEvaluation();
+
+        await replanRoute(context, createServices());
+
+        expect(messagesMock).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                model: 'claude-haiku-5-5',
+            }),
+        );
     });
 });

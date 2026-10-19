@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { calculateRoute } from './routing';
+import { pedestrianNetwork } from './pedestrian-network';
 
 const fetchMock = vi.fn();
 
@@ -256,5 +257,29 @@ describe('Servicio de rutas', () => {
             statusCode: 502,
             message: 'No se pudo conectar con el servicio de rutas.',
         });
+    });
+});
+
+describe('Selección del motor peatonal', () => {
+    it('calcula sobre la captura de red sin requerir clave ni consultar ORS', async () => {
+        vi.stubEnv('ORS_API_KEY', '');
+        const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+        try {
+            const segment = pedestrianNetwork.segments[0]!;
+            const [a, b] = segment.coordinates;
+            const route = await calculateRoute({
+                origin: { lng: a![0], lat: a![1] },
+                destination: { lng: b![0], lat: b![1] },
+                networkVersion: pedestrianNetwork.version,
+            });
+            expect(route.networkVersion).toBe(pedestrianNetwork.version);
+            expect(route.provider).toBe('pedestrian-sandbox');
+            expect(route.distanceMeters).toBeGreaterThan(0);
+            expect(fetch).not.toHaveBeenCalled();
+        } finally { vi.unstubAllGlobals(); vi.unstubAllEnvs(); }
+    });
+    it('rechaza una captura desconocida y bloqueos por ID sin modo peatonal', async () => {
+        await expect(calculateRoute({ ...input, networkVersion: 'vieja' })).rejects.toMatchObject({ statusCode: 409 });
+        await expect(calculateRoute({ ...input, blockedSegmentIds: ['inventado'] })).rejects.toMatchObject({ statusCode: 400 });
     });
 });

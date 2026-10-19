@@ -1,23 +1,55 @@
 import { Router } from 'express';
+import { resolvePedestrianSelection } from '../services/pedestrian-network';
+import { z } from 'zod';
 import {
     createIncident,
     createIncidentSchema,
-    listActiveIncidents,
+    listIncidents,
+    scenarioTimeSchema,
     simulationIdSchema,
 } from '../services/incidents';
+import {
+    INCIDENT_CATALOG,
+    INCIDENT_TYPES,
+} from '../config/incident-catalog';
 
 export const incidentsRouter = Router();
+
+incidentsRouter.get('/catalog', (_req, res) => {
+    res.status(200).json(
+        INCIDENT_TYPES.map((type) => ({
+            type,
+            ...INCIDENT_CATALOG[type],
+        })),
+    );
+});
+
+const listIncidentsSchema = z.object({
+    simulationId: simulationIdSchema,
+    scenarioTime: scenarioTimeSchema.optional(),
+    includeHistory: z
+        .enum(['true', 'false'])
+        .optional(),
+});
 
 incidentsRouter.post('/', async (req, res) => {
     const input = createIncidentSchema.safeParse(req.body);
 
     if (!input.success) {
         res.status(400).json({
-            message: 'Enviá una simulación y una zona bloqueada válidas.',
+            message:
+                'Revisá la simulación, la ubicación y los datos del incidente.',
         });
         return;
     }
 
+    if (input.data.pedestrianSelection) {
+        try { resolvePedestrianSelection(input.data.pedestrianSelection); }
+        catch (error) {
+            res.status(400).json({ message: error instanceof Error ? error.message : 'La selección no es válida.' });
+            return;
+        }
+    }
     try {
         const incident = await createIncident(input.data);
 
@@ -32,17 +64,29 @@ incidentsRouter.post('/', async (req, res) => {
 });
 
 incidentsRouter.get('/', async (req, res) => {
-    const input = simulationIdSchema.safeParse(req.query.simulationId);
+    const input = listIncidentsSchema.safeParse(req.query);
 
     if (!input.success) {
         res.status(400).json({
-            message: 'Indicá un identificador de simulación válido.',
+            message:
+                'Indicá una simulación, una fecha y opciones de consulta válidas.',
         });
         return;
     }
 
     try {
-        const incidents = await listActiveIncidents(input.data);
+        const incidents = await listIncidents(
+            input.data.simulationId,
+            {
+                includeHistory:
+                    input.data.includeHistory === 'true',
+                ...(input.data.scenarioTime !== undefined
+                    ? {
+                          scenarioTime: input.data.scenarioTime,
+                      }
+                    : {}),
+            },
+        );
 
         res.status(200).json(incidents);
     } catch {
