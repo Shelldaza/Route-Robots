@@ -1,92 +1,116 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+
+import RobotModelForm from './RobotModelForm'
+
+import {
+  DATA_SOURCES,
+  errorMessage,
+  fetchJson,
+  isRobot,
+  isRobotModel,
+  requiredWidth,
+} from '../utils/robot-models'
+
+import type {
+  Robot,
+  RobotModel,
+} from '../utils/robot-models'
+
 import './RobotSetupSection.css'
 
-export type Robot = {
-  id: string
-  name: string
-  model: string | null
-  speedKmh: number
-  batteryCapacityWh: number
-  consumptionWhPerKm: number
-  maxSlopePercent: number | null
-  createdAt: string
-}
+export type { Robot } from '../utils/robot-models'
 
 type Props = {
   onRobotSelected: (robot: Robot | null) => void
 }
 
-function isPositiveNumber(value: unknown): value is number {
+function measure(value: number | null): string {
+  return value === null
+    ? 'Sin información'
+    : `${value.toLocaleString('es-AR', {
+        maximumFractionDigits: 3,
+      })} m`
+}
+
+function ModelSummary({ model }: { model: RobotModel }) {
+  const width = requiredWidth(model)
+
   return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    value > 0
+    <div className="robot-model-summary">
+      <p>
+        <strong>{model.name}</strong>
+        {' · '}
+        {DATA_SOURCES[model.dataSource]}
+      </p>
+
+      <dl>
+        <div>
+          <dt>Ancho</dt>
+          <dd>{measure(model.widthMeters)}</dd>
+        </div>
+
+        <div>
+          <dt>Largo</dt>
+          <dd>{measure(model.lengthMeters)}</dd>
+        </div>
+
+        <div>
+          <dt>Margen por lado</dt>
+          <dd>{measure(model.lateralMarginMeters)}</dd>
+        </div>
+
+        <div>
+          <dt>Ancho con márgenes</dt>
+          <dd>{measure(width)}</dd>
+        </div>
+
+        <div>
+          <dt>Velocidad</dt>
+          <dd>{model.speedKmh} km/h</dd>
+        </div>
+
+        <div>
+          <dt>Batería</dt>
+          <dd>{model.batteryCapacityWh} Wh</dd>
+        </div>
+
+        <div>
+          <dt>Consumo de referencia</dt>
+          <dd>{model.consumptionWhPerKm} Wh/km</dd>
+        </div>
+
+        <div>
+          <dt>Pendiente máxima</dt>
+          <dd>
+            {model.maxSlopePercent === null
+              ? 'Sin información'
+              : `${model.maxSlopePercent} %`}
+          </dd>
+        </div>
+      </dl>
+
+      {model.sourceNotes && (
+        <p>
+          Fuente y condiciones: {model.sourceNotes}
+        </p>
+      )}
+
+      <p>
+        El ancho con márgenes es una referencia geométrica.
+        La evaluación del paso se incorporará al enrutamiento.
+      </p>
+    </div>
   )
 }
 
-function isRobot(value: unknown): value is Robot {
-  if (!value || typeof value !== 'object') return false
-
-  const robot = value as Record<string, unknown>
-
-  return (
-    typeof robot.id === 'string' &&
-    typeof robot.name === 'string' &&
-    (robot.model === null || typeof robot.model === 'string') &&
-    isPositiveNumber(robot.speedKmh) &&
-    isPositiveNumber(robot.batteryCapacityWh) &&
-    isPositiveNumber(robot.consumptionWhPerKm) &&
-    (
-      robot.maxSlopePercent === null ||
-      (
-        typeof robot.maxSlopePercent === 'number' &&
-        Number.isFinite(robot.maxSlopePercent) &&
-        robot.maxSlopePercent >= 0
-      )
-    ) &&
-    typeof robot.createdAt === 'string'
-  )
-}
-
-async function readResponse(
-  response: Response,
-  fallback: string,
-): Promise<unknown> {
-  const body: unknown = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const message =
-      body &&
-      typeof body === 'object' &&
-      'message' in body &&
-      typeof body.message === 'string'
-        ? body.message
-        : fallback
-
-    throw new Error(message)
-  }
-
-  return body
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.name === 'TimeoutError') {
-    return 'La consulta tardó demasiado. Intentá nuevamente.'
-  }
-
-  if (error instanceof TypeError) {
-    return 'No se pudo conectar con el backend.'
-  }
-
-  return error instanceof Error
-    ? error.message
-    : 'Ocurrió un error inesperado.'
-}
-
-function RobotSetupSection({ onRobotSelected }: Props) {
+export default function RobotSetupSection({
+  onRobotSelected,
+}: Props) {
   const [robots, setRobots] = useState<Robot[]>([])
+  const [models, setModels] = useState<RobotModel[]>([])
   const [selectedId, setSelectedId] = useState('')
+  const [modelId, setModelId] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -94,38 +118,49 @@ function RobotSetupSection({ onRobotSelected }: Props) {
   const [success, setSuccess] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
 
+  const chosenModel = models.find(
+    (model) => model.id === modelId,
+  )
+
+  const selectedRobot = robots.find(
+    (robot) => robot.id === selectedId,
+  )
+
   useEffect(() => {
     const controller = new AbortController()
 
-    async function loadRobots() {
+    async function load() {
       setLoading(true)
       setLoadError('')
 
       try {
-        const response = await fetch('/api/robots', {
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(40000),
-          ]),
-        })
+        const [robotList, modelList] = await Promise.all([
+          fetchJson('/api/robots', {
+            signal: controller.signal,
+          }),
+          fetchJson('/api/robot-models', {
+            signal: controller.signal,
+          }),
+        ])
 
-        const body = await readResponse(
-          response,
-          'No se pudieron consultar los robots.',
-        )
-
-        if (!Array.isArray(body) || !body.every(isRobot)) {
+        if (
+          !Array.isArray(robotList)
+          || !robotList.every(isRobot)
+          || !Array.isArray(modelList)
+          || !modelList.every(isRobotModel)
+        ) {
           throw new Error(
-            'El servidor devolvió una lista de robots inválida.',
+            'El servidor devolvió datos de robots o modelos inválidos.',
           )
         }
 
         if (!controller.signal.aborted) {
-          setRobots(body)
+          setRobots(robotList)
+          setModels(modelList)
         }
       } catch (error) {
         if (!controller.signal.aborted) {
-          setLoadError(getErrorMessage(error))
+          setLoadError(errorMessage(error))
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -134,69 +169,70 @@ function RobotSetupSection({ onRobotSelected }: Props) {
       }
     }
 
-    void loadRobots()
+    void load()
 
-    return () => {
-      controller.abort()
-    }
+    return () => controller.abort()
   }, [reloadKey])
 
   function selectRobot(id: string) {
     setSelectedId(id)
 
-    const robot = robots.find((item) => item.id === id) ?? null
-    onRobotSelected(robot)
+    onRobotSelected(
+      robots.find((robot) => robot.id === id) ?? null,
+    )
   }
 
-  async function registerRobot(event: FormEvent<HTMLFormElement>) {
+  function addModel(model: RobotModel) {
+    setModels((current) => [
+      model,
+      ...current.filter((item) => item.id !== model.id),
+    ].sort((a, b) => a.name.localeCompare(b.name, 'es')))
+
+    setModelId(model.id)
+    setSubmitError('')
+  }
+
+  async function registerRobot(
+    event: FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault()
 
     if (saving || loading || loadError) return
 
     const form = event.currentTarget
-    const data = new FormData(form)
 
-    const name = String(data.get('name') ?? '').trim()
-    const model = String(data.get('model') ?? '').trim()
-    const slope = String(data.get('maxSlopePercent') ?? '').trim()
+    const name = String(
+      new FormData(form).get('name') ?? '',
+    ).trim()
 
     setSubmitError('')
     setSuccess('')
 
-    if (!name) {
-      setSubmitError('Ingresá un nombre o identificador para el robot.')
-      return
-    }
+    if (!name || !chosenModel) {
+      setSubmitError(
+        'Ingresá un identificador y seleccioná un modelo.',
+      )
 
-    const payload = {
-      name,
-      model: model || null,
-      speedKmh: Number(data.get('speedKmh')),
-      batteryCapacityWh: Number(data.get('batteryCapacityWh')),
-      consumptionWhPerKm: Number(data.get('consumptionWhPerKm')),
-      maxSlopePercent: slope === '' ? null : Number(slope),
+      return
     }
 
     setSaving(true)
 
     try {
-      const response = await fetch('/api/robots', {
+      const body = await fetchJson('/api/robots', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(40000),
+        body: JSON.stringify({
+          name,
+          modelId: chosenModel.id,
+        }),
       })
-
-      const body = await readResponse(
-        response,
-        'No se pudo registrar el robot.',
-      )
 
       if (!isRobot(body)) {
         throw new Error(
-          'El servidor devolvió un robot con datos inválidos.',
+          'El servidor devolvió un robot inválido.',
         )
       }
 
@@ -207,10 +243,14 @@ function RobotSetupSection({ onRobotSelected }: Props) {
 
       setSelectedId(body.id)
       onRobotSelected(body)
-      setSuccess(`Robot ${body.name} registrado correctamente.`)
+
+      setSuccess(
+        `Robot ${body.name} registrado correctamente.`,
+      )
+
       form.reset()
     } catch (error) {
-      setSubmitError(getErrorMessage(error))
+      setSubmitError(errorMessage(error))
     } finally {
       setSaving(false)
     }
@@ -223,36 +263,40 @@ function RobotSetupSection({ onRobotSelected }: Props) {
     >
       <div className="robot-setup-heading">
         <div>
-          <p className="robot-setup-step">PASO 1: ROBOT</p>
-          <h2 id="robot-setup-title">Elegí quién hará el recorrido</h2>
+          <p className="robot-setup-step">
+            PASO 1: ROBOT
+          </p>
+
+          <h2 id="robot-setup-title">
+            Elegí quién hará el recorrido
+          </h2>
+
           <p>
-            Usá un robot registrado o incorporá uno con sus
-            capacidades operativas.
+            Seleccioná una unidad registrada o incorporá una
+            a partir de un modelo del catálogo.
           </p>
         </div>
 
         <div className="robot-setup-selection">
-          <label htmlFor="registered-robot">Robot registrado</label>
+          <label htmlFor="registered-robot">
+            Robot registrado
+          </label>
 
           <select
             id="registered-robot"
             value={selectedId}
-            onChange={(event) => selectRobot(event.target.value)}
+            onChange={(event) =>
+              selectRobot(event.target.value)
+            }
             disabled={
-              loading ||
-              saving ||
-              Boolean(loadError) ||
-              robots.length === 0
+              loading
+              || saving
+              || Boolean(loadError)
+              || robots.length === 0
             }
           >
             <option value="">
-              {loading
-                ? 'Cargando robots…'
-                : loadError
-                  ? 'Lista no disponible'
-                  : robots.length === 0
-                    ? 'Todavía no hay robots registrados'
-                    : 'Seleccionar robot'}
+              {loading ? 'Cargando…' : 'Seleccionar robot'}
             </option>
 
             {robots.map((robot) => (
@@ -268,114 +312,112 @@ function RobotSetupSection({ onRobotSelected }: Props) {
       {loadError && (
         <div className="robot-setup-feedback robot-setup-error">
           <p role="alert">{loadError}</p>
+
           <button
             className="robot-setup-retry"
             type="button"
-            onClick={() => setReloadKey((current) => current + 1)}
             disabled={loading || saving}
+            onClick={() =>
+              setReloadKey((key) => key + 1)
+            }
           >
             Reintentar carga
           </button>
         </div>
       )}
 
+      {selectedRobot && (
+        <p className="robot-model-help">
+          Unidad seleccionada:{' '}
+          <strong>{selectedRobot.name}</strong>.
+          {' '}Ancho: {measure(selectedRobot.widthMeters)}.
+          {' '}Largo: {measure(selectedRobot.lengthMeters)}.
+          {' '}Margen por lado:{' '}
+          {measure(selectedRobot.lateralMarginMeters)}.
+          {' '}
+          {selectedRobot.modelId === null
+            && 'Registro anterior sin modelo del catálogo; conserva sus capacidades operativas.'}
+          {' '}
+          {selectedRobot.dataSource
+            && `Origen: ${DATA_SOURCES[selectedRobot.dataSource]}.`}
+        </p>
+      )}
+
       <details className="robot-setup-details" open>
         <summary>Registrar un robot</summary>
 
         <form onSubmit={registerRobot}>
-          <fieldset disabled={saving}>
+          <fieldset
+            disabled={
+              saving || loading || Boolean(loadError)
+            }
+          >
             <legend>
-              Identificación y capacidades. Todos los campos son
-              obligatorios salvo los indicados como opcionales.
+              Ingresá el identificador de la unidad y elegí
+              su modelo. Ambos campos son obligatorios.
             </legend>
 
             <div className="robot-setup-fields">
               <label htmlFor="robot-name">
                 Nombre o identificador
+
                 <input
                   id="robot-name"
                   name="name"
-                  type="text"
-                  placeholder="Ej.: RR-01"
                   maxLength={80}
                   required
+                  placeholder="Ej.: RR-01"
                 />
               </label>
 
               <label htmlFor="robot-model">
-                Modelo (opcional)
-                <input
+                Modelo y configuración
+
+                <select
                   id="robot-model"
-                  name="model"
-                  type="text"
-                  placeholder="Modelo del robot"
-                  maxLength={80}
-                />
-              </label>
-
-              <label htmlFor="robot-speed">
-                Velocidad operativa - km/h
-                <input
-                  id="robot-speed"
-                  name="speedKmh"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
+                  value={modelId}
                   required
-                />
-              </label>
+                  onChange={(event) =>
+                    setModelId(event.target.value)
+                  }
+                >
+                  <option value="">
+                    Seleccionar modelo
+                  </option>
 
-              <label htmlFor="robot-battery-capacity">
-                Capacidad de batería - Wh
-                <input
-                  id="robot-battery-capacity"
-                  name="batteryCapacityWh"
-                  type="number"
-                  min="1"
-                  step="1"
-                  required
-                />
-              </label>
-
-              <label htmlFor="robot-consumption">
-                Consumo de referencia - Wh/km
-                <input
-                  id="robot-consumption"
-                  name="consumptionWhPerKm"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  aria-describedby="robot-consumption-help"
-                  required
-                />
-                <small id="robot-consumption-help">
-                  Usá un valor medido o documentado para condiciones
-                  de referencia.
-                </small>
-              </label>
-
-              <label htmlFor="robot-slope">
-                Pendiente máxima — % (opcional)
-                <input
-                  id="robot-slope"
-                  name="maxSlopePercent"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  aria-describedby="robot-slope-help"
-                />
-                <small id="robot-slope-help">
-                  Dejalo vacío si desconocés el límite. Se expresa
-                  en porcentaje, no en grados.
-                </small>
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
+
+            {!loading
+              && !loadError
+              && models.length === 0
+              && (
+                <p className="robot-model-help">
+                  Primero agregá un modelo usando
+                  la sección de abajo.
+                </p>
+              )}
+
+            {chosenModel && (
+              <ModelSummary model={chosenModel} />
+            )}
           </fieldset>
 
           <div className="robot-setup-footer">
             <button
               type="submit"
-              disabled={saving || loading || Boolean(loadError)}
+              disabled={
+                saving
+                || loading
+                || Boolean(loadError)
+                || !chosenModel
+              }
             >
               {saving ? 'Registrando…' : 'Registrar robot'}
             </button>
@@ -400,8 +442,13 @@ function RobotSetupSection({ onRobotSelected }: Props) {
           )}
         </form>
       </details>
+
+      <RobotModelForm
+        onCreated={addModel}
+        disabled={
+          loading || saving || Boolean(loadError)
+        }
+      />
     </section>
   )
 }
-
-export default RobotSetupSection

@@ -1,5 +1,6 @@
 import express from 'express';
 import request from 'supertest';
+
 import {
     afterEach,
     beforeEach,
@@ -26,43 +27,51 @@ const app = express();
 app.use(express.json());
 app.use('/api/robots', robotsRouter);
 
-const validPayload = {
+const modelId = '10000000-0000-4000-8000-000000000001';
+
+const payload = {
     name: 'RR-01',
-    model: 'Perfil de prueba',
+    modelId,
+};
+
+const robot = {
+    id: '20000000-0000-4000-8000-000000000001',
+    ...payload,
+    model: 'Demo compacto v1',
     speedKmh: 4,
     batteryCapacityWh: 500,
     consumptionWhPerKm: 40,
-    maxSlopePercent: 8,
+    maxSlopePercent: null,
+    widthMeters: 0.6,
+    lengthMeters: 0.8,
+    lateralMarginMeters: 0.15,
+    dataSource: 'simulated',
+    sourceNotes: 'Datos ficticios para la demo.',
+    createdAt: '2026-10-20T00:00:00.000Z',
 };
 
-const savedRobot = {
-    id: 'ddd96b67-21fb-4274-8782-90ef13712a3a',
-    ...validPayload,
-    createdAt: '2026-10-14T16:51:21.163Z',
-};
+describe('API de robots normalizada', () => {
+    beforeEach(() => queryMock.mockReset());
 
-describe('API de robots', () => {
-    beforeEach(() => {
-        queryMock.mockReset();
-    });
+    afterEach(() => vi.restoreAllMocks());
 
-    afterEach(() => {
-        vi.restoreAllMocks();
-    });
-
-    it('devuelve los robots registrados', async () => {
+    it('devuelve unidades con las capacidades de su modelo', async () => {
         queryMock.mockResolvedValueOnce({
-            rows: [savedRobot],
+            rows: [robot],
         });
 
         const response = await request(app)
             .get('/api/robots');
 
         expect(response.status).toBe(200);
-        expect(response.body).toEqual([savedRobot]);
+        expect(response.body).toEqual([robot]);
+
+        expect(queryMock).toHaveBeenCalledWith(
+            expect.stringContaining('JOIN robot_models'),
+        );
     });
 
-    it('devuelve una lista vacía cuando no hay robots', async () => {
+    it('devuelve una lista vacía', async () => {
         queryMock.mockResolvedValueOnce({
             rows: [],
         });
@@ -74,126 +83,96 @@ describe('API de robots', () => {
         expect(response.body).toEqual([]);
     });
 
-    it('registra un robot válido', async () => {
-        queryMock.mockResolvedValueOnce({
-            rows: [savedRobot],
-        });
-
-        const response = await request(app)
-            .post('/api/robots')
-            .send(validPayload);
-
-        expect(response.status).toBe(201);
-        expect(response.body).toEqual(savedRobot);
-
-        expect(queryMock).toHaveBeenCalledWith(
-            expect.any(String),
-            ['RR-01', 'Perfil de prueba', 4, 500, 40, 8],
-        );
-    });
-
-    it('envía null a la base cuando se omiten los campos opcionales', async () => {
-        const robot = {
-            ...savedRobot,
-            model: null,
-            maxSlopePercent: null,
-        };
-
+    it('registra una unidad solamente con nombre y modelo', async () => {
         queryMock.mockResolvedValueOnce({
             rows: [robot],
         });
 
         const response = await request(app)
             .post('/api/robots')
-            .send({
-                name: 'RR-01',
-                speedKmh: 4,
-                batteryCapacityWh: 500,
-                consumptionWhPerKm: 40,
-            });
+            .send(payload);
 
         expect(response.status).toBe(201);
-        expect(response.body.model).toBeNull();
-        expect(response.body.maxSlopePercent).toBeNull();
+        expect(response.body).toEqual(robot);
 
         expect(queryMock).toHaveBeenCalledWith(
-            expect.any(String),
-            ['RR-01', null, 4, 500, 40, null],
+            expect.stringContaining(
+                'INSERT INTO robots (name, model_id)',
+            ),
+            ['RR-01', modelId],
         );
     });
 
     it.each([
-        ['nombre vacío', { name: '   ' }],
-        ['velocidad negativa', { speedKmh: -1 }],
-        ['velocidad cero', { speedKmh: 0 }],
-        ['batería cero', { batteryCapacityWh: 0 }],
-        ['consumo negativo', { consumptionWhPerKm: -1 }],
-        ['pendiente negativa', { maxSlopePercent: -1 }],
-        ['velocidad como texto', { speedKmh: '4' }],
-    ])('rechaza %s sin consultar la base', async (_name, changes) => {
+        { name: '' },
+        { name: '   ' },
+        { name: 'x'.repeat(81) },
+        { modelId: null },
+        { modelId: 'incorrecto' },
+        { modelId: undefined },
+        { speedKmh: 999 },
+        { widthMeters: 0.01 },
+    ])(
+        'rechaza datos inválidos o capacidades enviadas por el cliente: %j',
+        async (changes) => {
+            const response = await request(app)
+                .post('/api/robots')
+                .send({
+                    ...payload,
+                    ...changes,
+                });
+
+            expect(response.status).toBe(400);
+            expect(queryMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('informa que el modelo no existe', async () => {
+        queryMock.mockResolvedValueOnce({
+            rows: [],
+        });
+
         const response = await request(app)
             .post('/api/robots')
-            .send({
-                ...validPayload,
-                ...changes,
-            });
+            .send(payload);
 
-        expect(response.status).toBe(400);
-        expect(response.body.message).toBe(
-            'Los datos del robot son inválidos.',
-        );
-        expect(response.body.errors).toEqual(
-            expect.any(Array),
-        );
-        expect(queryMock).not.toHaveBeenCalled();
+        expect(response.status).toBe(404);
     });
 
-    it('devuelve 409 cuando el nombre está duplicado', async () => {
+    it('informa un identificador de unidad duplicado', async () => {
         queryMock.mockRejectedValueOnce({
             code: '23505',
-            constraint: 'robots_name_unique',
         });
 
         const response = await request(app)
             .post('/api/robots')
-            .send(validPayload);
+            .send(payload);
 
         expect(response.status).toBe(409);
-        expect(response.body.message).toBe(
-            'Ya existe un robot con ese nombre o identificador.',
-        );
     });
 
-    it('controla un fallo al consultar sin exponer detalles internos', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => {});
+    it.each(['get', 'post'] as const)(
+        'controla errores internos al hacer %s',
+        async (method) => {
+            vi.spyOn(console, 'error')
+                .mockImplementation(() => {});
 
-        queryMock.mockRejectedValueOnce(
-            new Error('Detalle interno de conexión'),
-        );
+            queryMock.mockRejectedValueOnce(
+                new Error('Detalle privado'),
+            );
 
-        const response = await request(app)
-            .get('/api/robots');
+            const response = method === 'get'
+                ? await request(app)
+                    .get('/api/robots')
+                : await request(app)
+                    .post('/api/robots')
+                    .send(payload);
 
-        expect(response.status).toBe(500);
-        expect(response.body).toEqual({
-            message: 'No se pudieron consultar los robots.',
-        });
-    });
+            expect(response.status).toBe(500);
 
-    it('controla un fallo al registrar sin exponer detalles internos', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => {});
-
-        queryMock.mockRejectedValueOnce(
-            new Error('Detalle interno de conexión'),
-        );
-
-        const response = await request(app)
-            .post('/api/robots')
-            .send(validPayload);
-
-        expect(response.status).toBe(500);
-        expect(response.body).toEqual({
-            message: 'No se pudo registrar el robot.',
-        });
-    });
+            expect(
+                JSON.stringify(response.body),
+            ).not.toContain('Detalle privado');
+        },
+    );
 });
