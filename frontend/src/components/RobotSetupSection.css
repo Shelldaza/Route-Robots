@@ -175,6 +175,7 @@
     grid-template-columns: 1fr;
   }
 }
+
 .robot-setup-fields small {
   display: block;
   margin-top: 8px;
@@ -182,6 +183,7 @@
   font-size: 12px;
   line-height: 1.6;
 }
+
 .robot-setup .robot-setup-feedback {
   margin: 20px 0 0;
   padding: 14px 16px;
@@ -222,4 +224,46 @@
 .robot-setup .robot-setup-footer button:not(:disabled):hover {
   border-color: #a30000;
   background: #a30000;
+}
+
+.robot-setup .robot-model-help {
+  margin: 18px 0;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.robot-model-summary {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #dedede;
+  background: #fafafa;
+  overflow-wrap: anywhere;
+}
+
+.robot-model-summary p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.robot-model-summary p:last-child {
+  margin-bottom: 0;
+}
+
+.robot-model-summary dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.robot-model-summary dt {
+  color: #555;
+  font-size: 13px;
+}
+
+.robot-model-summary dd {
+  margin: 6px 0 0;
+  font-weight: 600;
 }
