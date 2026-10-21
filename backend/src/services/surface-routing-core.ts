@@ -922,29 +922,3 @@ async function calculateFallbackSurfaceRoute(
     throw unavailable();
 }
 
-export function toolIncidents(
-    incidents: SurfaceIncident[],
-    context: SurfaceContext,
-) {
-    return incidents
-        .filter((incident) =>
-            incident.surfaceImpact
-            || incident.effect === 'blockage'
-        )
-        .map((incident) => {
-            if (!incident.surfaceImpact) return incident;
-
-            const { surfaceImpact, ...summary } = incident;
-
-            return {
-                ...summary,
-                effect: 'blockage' as const,
-                pedestrianImpact: {
-                    networkVersion: context.networkVersion,
-                    scope: 'segment' as const,
-                    segmentIds: [],
-                    segments: [],
-                },
-            };
-        });
-}

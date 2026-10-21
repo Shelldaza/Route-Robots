@@ -65,8 +65,10 @@ import {
 
 const origin: Point = [-77.04, 38.9];
 
-const point = (x: number, y: number): Point =>
-    world([x, y], origin);
+const point = (
+    x: number,
+    y: number,
+): Point => world([x, y], origin);
 
 const rectangle = (
     x: number,
@@ -87,25 +89,21 @@ const rectangle = (
 const impact: SurfaceImpact = {
     geometry: rectangle(0, 8, 1.2, 1),
     collisionGeometry: rectangle(0, 8, 1.2, 1),
-
     surfaces: [{
         id: 1,
         code: 1480,
         capturedAt: null,
         geometry: rectangle(0, 0, 2, 20),
     }],
-
     segmentIds: ['a'],
     source: 'official',
     retrievedAt: '2026-10-20',
-
     box: {
         center: point(0.6, 8.5),
         halfWidth: 0.6,
         halfLength: 0.5,
         angle: 0,
     },
-
     unknown: false,
 };
 
@@ -178,7 +176,10 @@ it('adapta el recorrido conservando los extremos', async () => {
         .toBeGreaterThan(2);
 
     expect(
-        lineHits(result.geometry.coordinates, impact.geometry),
+        lineHits(
+            result.geometry.coordinates,
+            impact.geometry,
+        ),
     ).toBe(false);
 });
 
@@ -239,11 +240,19 @@ it('considera los cierres generales contenidos en la superficie', () => {
     ).not.toBe('local_path');
 });
 
-it('envía al agente un resumen sin polígonos', () => {
-    const result = toolIncidents([incident], context)[0]!;
+it('envía al agente una restricción de superficie sin impactos ficticios', () => {
+    const result = toolIncidents(
+        [incident],
+        context,
+    )[0]!;
 
     expect(result).not.toHaveProperty('surfaceImpact');
-    expect(result.pedestrianImpact?.segmentIds).toEqual([]);
+    expect(result).not.toHaveProperty('pedestrianImpact');
+
+    expect(result.restriction).toEqual({
+        kind: 'surface',
+        networkVersion: context.networkVersion,
+    });
 });
 
 it('usa superficies de contexto para conectar polígonos contiguos', async () => {
@@ -279,7 +288,10 @@ it('usa superficies de contexto para conectar polígonos contiguos', async () =>
     );
 
     expect(
-        lineHits(result.geometry.coordinates, impact.geometry),
+        lineHits(
+            result.geometry.coordinates,
+            impact.geometry,
+        ),
     ).toBe(false);
 });
 
@@ -299,8 +311,14 @@ it('distingue falta de cartografía de un cierre demostrado', async () => {
         calculateSurfaceRoute(
             {
                 ...input,
-                origin: { lng: a[0], lat: a[1] },
-                destination: { lng: b[0], lat: b[1] },
+                origin: {
+                    lng: a[0],
+                    lat: a[1],
+                },
+                destination: {
+                    lng: b[0],
+                    lat: b[1],
+                },
             },
             context,
             [incident],
@@ -331,6 +349,7 @@ it('no mezcla fuentes cartográficas distintas en una evaluación', async () => 
         statusCode: 409,
     });
 });
+
 it.each([
     'caution',
     'informational',
@@ -350,7 +369,6 @@ it.each([
             [report],
         );
 
-        // El reporte no impone un cierre geométrico.
         expect(result).toEqual(route);
 
         expect(mocks.calculate)
@@ -359,8 +377,7 @@ it.each([
         expect(mocks.query)
             .not.toHaveBeenCalled();
 
-        // El recorrido sigue atravesando la ubicación del aviso.
-        // Esto es deliberado: el efecto no representa un bloqueo.
+        // El aviso no representa un cierre.
         expect(
             lineHits(
                 result.geometry.coordinates,
@@ -384,8 +401,6 @@ it(
             coordinates,
         );
 
-        // Si hay paso local verificado, no debe empezar
-        // calculando un recorrido diferente.
         expect(mocks.calculate)
             .not.toHaveBeenCalled();
 
@@ -412,9 +427,54 @@ it(
 
         expect(preview.state).toBe('local_path');
 
-        // Con iguales datos y restricciones, la evaluación
-        // debe conservar la maniobra mostrada en la vista previa.
         expect(result.geometry.coordinates)
             .toEqual(preview.coordinates);
     },
 );
+
+it('consume las referencias de superficie antes de consultar el grafo', async () => {
+    mocks.calculate.mockResolvedValue(route);
+
+    const result = await calculateSurfaceRoute(
+        {
+            ...input,
+            networkVersion: context.networkVersion,
+            surfaceIncidentIds: [incident.id],
+        },
+        context,
+        [incident],
+    );
+
+    expect(mocks.calculate)
+        .toHaveBeenCalledTimes(1);
+
+    expect(
+        mocks.calculate.mock.calls[0]![0],
+    ).not.toHaveProperty('surfaceIncidentIds');
+
+    expect(
+        lineHits(
+            result.geometry.coordinates,
+            impact.geometry,
+        ),
+    ).toBe(false);
+});
+
+it('rechaza una referencia de superficie que ya no está activa', async () => {
+    await expect(
+        calculateSurfaceRoute(
+            {
+                ...input,
+                networkVersion: context.networkVersion,
+                surfaceIncidentIds: ['another-incident'],
+            },
+            context,
+            [incident],
+        ),
+    ).rejects.toMatchObject({
+        statusCode: 409,
+    });
+
+    expect(mocks.calculate)
+        .not.toHaveBeenCalled();
+});

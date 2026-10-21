@@ -11,6 +11,10 @@ import {
 } from './surface-route-recovery';
 
 import {
+    consumeSurfaceRestrictions,
+} from './routing-restrictions';
+
+import {
     RoutingError,
 } from './routing';
 
@@ -28,22 +32,23 @@ import type {
     WalkSurface,
 } from '../../../shared/surfaces';
 
-// Conservamos las exportaciones utilizadas por el resto del proyecto.
+// El endpoint conserva este import, pero ahora recibe
+// restricciones explícitas.
+export {
+    toolIncidents,
+} from './routing-restrictions';
+
 export {
     legacyObstacles,
     surfaceConstraints,
     previewSurfacePath,
-    toolIncidents,
 } from './surface-routing-core';
 
 /**
  * Entrada pública del cálculo con superficies.
  *
- * Primero verifica el recorrido propuesto por el navegador.
- * Después intenta la adaptación local y el cálculo habitual.
- *
- * Si esos intentos no encuentran una ruta, prueba reconectar los
- * extremos utilizando las partes libres de los tramos del servidor.
+ * Consume las referencias de superficie, verifica el recorrido
+ * propuesto y conserva la recuperación mediante retroceso.
  */
 export async function calculateSurfaceRoute(
     value: unknown,
@@ -52,6 +57,12 @@ export async function calculateSurfaceRoute(
     knownSurfaces: WalkSurface[] = [],
     preferredCoordinates?: Point[],
 ) {
+    const request = consumeSurfaceRestrictions(
+        value,
+        context,
+        incidents,
+    );
+
     let verified: Point[] | undefined;
 
     if (
@@ -80,16 +91,13 @@ export async function calculateSurfaceRoute(
 
     try {
         return await calculateTrustedSurfaceRoute(
-            value,
+            request,
             context,
             incidents,
             knownSurfaces,
             verified,
         );
     } catch (error) {
-        // Los errores de configuración, versión de red o proveedor
-        // deben conservarse. La recuperación solo intenta resolver
-        // un cálculo que terminó sin una ruta válida.
         if (
             !(error instanceof RoutingError)
             || error.statusCode !== 422
@@ -98,7 +106,7 @@ export async function calculateSurfaceRoute(
         }
 
         const recovered = await recoverSurfaceRoute(
-            value,
+            request,
             context,
             incidents,
             knownSurfaces,
@@ -108,8 +116,6 @@ export async function calculateSurfaceRoute(
             return recovered;
         }
 
-        // Si tampoco hay una reconexión verificable, mantenemos
-        // el error original y no aplicamos un recorrido inventado.
         throw error;
     }
 }

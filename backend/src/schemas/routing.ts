@@ -24,16 +24,32 @@ export const blockedAreaSchema = z
         },
     );
 
-// Conservamos el contrato actual de solicitudes.
-//
-// networkVersion selecciona la captura peatonal local.
-// blockedSegmentIds identifica cierres dentro de esa captura.
-// strictOrigin impide ajustes amplios de la posición del robot.
+/**
+ * Solicitud común de enrutamiento.
+ *
+ * Las referencias de superficie deben ser consumidas por su motor
+ * antes de utilizar el grafo o el proveedor general.
+ */
 export const routeRequestSchema = z.object({
     origin: pointSchema,
     destination: pointSchema,
-    blockedAreas: z.array(blockedAreaSchema).max(10).optional(),
+
+    blockedAreas: z
+        .array(blockedAreaSchema)
+        .max(10)
+        .optional(),
+
     networkVersion: z.string().optional(),
-    blockedSegmentIds: z.array(z.string()).max(300).optional(),
+
+    blockedSegmentIds: z
+        .array(z.string())
+        .max(300)
+        .optional(),
+
     strictOrigin: z.boolean().optional(),
+
+    surfaceIncidentIds: z
+        .array(z.string().min(1))
+        .max(300)
+        .optional(),
 });

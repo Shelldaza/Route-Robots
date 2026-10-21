@@ -20,9 +20,6 @@ import type {
 } from '../types/routing';
 
 // Compatibilidad con los imports existentes del proyecto.
-//
-// Los consumidores actuales pueden seguir importando esquemas, tipos
-// y RoutingError desde este servicio.
 export {
     pointSchema,
     blockedAreaSchema,
@@ -39,8 +36,12 @@ export {
     RoutingError,
 } from './routing-error';
 
-// Este servicio valida la solicitud y elige el motor.
-// Los detalles HTTP del proveedor externo quedan en su adaptador.
+/**
+ * Valida la solicitud y selecciona el motor de rutas.
+ *
+ * Este servicio procesa áreas y cierres por tramo.
+ * Las superficies deben haber sido procesadas previamente.
+ */
 export async function calculateRoute(
     value: unknown,
 ): Promise<CalculatedRoute> {
@@ -56,10 +57,19 @@ export async function calculateRoute(
 
     const input = parsedInput.data;
 
+    // Impide ignorar silenciosamente una restricción que este
+    // motor no sabe evaluar.
+    if (input.surfaceIncidentIds?.length) {
+        throw new RoutingError(
+            400,
+            'Las restricciones de superficie requieren el motor de superficies.',
+        );
+    }
+
     // Una entrega asociada a una captura usa únicamente esa red.
     //
-    // No recurrimos a ORS si el grafo no encuentra un camino: podría proponer
-    // conexiones que no pertenecen a la cartografía validada del escenario.
+    // No recurrimos a ORS si el grafo no encuentra un camino:
+    // podría proponer conexiones ajenas al escenario.
     if (input.networkVersion) {
         if (
             input.networkVersion
@@ -83,7 +93,7 @@ export async function calculateRoute(
         }
     }
 
-    // Un ID de tramo solo tiene sentido dentro de la red que lo define.
+    // Un ID de tramo solo tiene sentido dentro de su red.
     if (input.blockedSegmentIds?.length) {
         throw new RoutingError(
             400,

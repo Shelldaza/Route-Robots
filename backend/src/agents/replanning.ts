@@ -1,17 +1,30 @@
 import Anthropic from '@anthropic-ai/sdk';
+
 import {
     createRoutingMcpSession,
 } from '../mcp/routing-session';
+
 import {
     routingContextSchema,
 } from '../schemas/routing-context';
+
+import {
+    toRoutingIncidents,
+    validateRestrictedRoute,
+} from '../services/routing-restrictions';
+
+import {
+    RoutingError,
+} from '../services/routing-error';
+
 import type {
     RoutingContext,
     RoutingServices,
 } from '../mcp/routing-session';
-import {
-    routeIntersectsBlockedAreas,
-} from '../services/route-geometry';
+
+import type {
+    RoutingIncidentInput,
+} from '../types/routing-restrictions';
 
 export class ReplanningError extends Error {
     constructor(
@@ -20,6 +33,25 @@ export class ReplanningError extends Error {
     ) {
         super(message);
         this.name = 'ReplanningError';
+    }
+}
+
+// Conserva el contrato de errores que utilizan los endpoints del agente.
+function readRestrictions(
+    incidents: RoutingIncidentInput[],
+    version?: string,
+) {
+    try {
+        return toRoutingIncidents(incidents, version);
+    } catch (error) {
+        if (error instanceof RoutingError) {
+            throw new ReplanningError(
+                error.statusCode,
+                error.message,
+            );
+        }
+
+        throw error;
     }
 }
 
@@ -47,6 +79,12 @@ Reglas:
 - Respondé en un máximo de tres oraciones.
 `;
 
+/**
+ * Coordina las herramientas solicitadas por Claude.
+ *
+ * Las rutas y sus comprobaciones siguen perteneciendo al backend.
+ * Una explicación de la IA nunca sustituye una ruta validada.
+ */
 export async function replanRoute(
     value: RoutingContext,
     services: RoutingServices,
@@ -77,11 +115,13 @@ export async function replanRoute(
         );
     }
 
-    const initialIncidents =
+    const initialIncidents = readRestrictions(
         await services.listActiveIncidents(
             context.simulationId,
             context.scenarioTime,
-        );
+        ),
+        context.networkVersion,
+    );
 
     if (initialIncidents.length === 0) {
         throw new ReplanningError(
@@ -126,7 +166,9 @@ export async function replanRoute(
 
         if (
             tools.length !== 2
-            || new Set(tools.map((tool) => tool.name)).size !== 2
+            || new Set(
+                tools.map((tool) => tool.name),
+            ).size !== 2
         ) {
             throw new ReplanningError(
                 503,
@@ -134,15 +176,13 @@ export async function replanRoute(
             );
         }
 
-        const messages: Anthropic.MessageParam[] = [
-            {
-                role: 'user',
-                content:
-                    'Se registró un bloqueo sobre el recorrido. '
-                    + 'Consultá los incidentes y buscá una alternativa '
-                    + `para la fecha del escenario ${context.scenarioTime}.`,
-            },
-        ];
+        const messages: Anthropic.MessageParam[] = [{
+            role: 'user',
+            content:
+                'Se registró un bloqueo sobre el recorrido. '
+                + 'Consultá los incidentes y buscá una alternativa '
+                + `para la fecha del escenario ${context.scenarioTime}.`,
+        }];
 
         const executed = new Set<string>();
 
@@ -188,8 +228,7 @@ export async function replanRoute(
                     max_tokens: 400,
                 });
 
-            // Una respuesta truncada o interrumpida no sirve
-            // como evaluación completa.
+            // Una respuesta truncada no constituye una evaluación completa.
             if (
                 response.stop_reason !== 'tool_use'
                 && response.stop_reason !== 'end_turn'
@@ -245,12 +284,15 @@ export async function replanRoute(
                     };
                 }
 
-                // Conserva la misma fecha durante la validación.
-                const currentIncidents =
+                // Se vuelve a consultar usando la misma fecha.
+                // Conservamos la detección de cambios durante el cálculo.
+                const currentIncidents = readRestrictions(
                     await services.listActiveIncidents(
                         context.simulationId,
                         context.scenarioTime,
-                    );
+                    ),
+                    context.networkVersion,
+                );
 
                 const previousIds = [
                     ...candidate.incidentIds,
@@ -270,82 +312,23 @@ export async function replanRoute(
                     );
                 }
 
-                // Los incidentes peatonales bloquean tramos concretos.
-                // Los incidentes sin selección peatonal bloquean áreas.
-                const pedestrianIncidents = currentIncidents.filter(
-                    (incident) => incident.pedestrianImpact,
-                );
-
-                const blockedAreas = currentIncidents
-                    .filter((incident) => !incident.pedestrianImpact)
-                    .map((incident) => incident.blockedArea);
-
-                if (pedestrianIncidents.length > 0) {
-                    const route = candidate.route;
-
-                    const blockedSegmentIds = new Set(
-                        pedestrianIncidents.flatMap((incident) =>
-                            incident.pedestrianImpact?.segmentIds ?? []
-                        ),
+                // La validación distingue áreas, tramos y superficies
+                // mediante su variante explícita.
+                try {
+                    validateRestrictedRoute(
+                        candidate.route,
+                        currentIncidents,
+                        context,
                     );
-
-                    // Tanto las maniobras sobre superficies como
-                    // las rutas del grafo pertenecen a la misma red.
-                    if (
-                        !context.networkVersion
-                        || route.provider !== 'pedestrian-sandbox'
-                        || route.networkVersion !== context.networkVersion
-                        || pedestrianIncidents.some((incident) =>
-                            incident.pedestrianImpact?.networkVersion
-                            !== context.networkVersion
-                        )
-                    ) {
+                } catch (error) {
+                    if (error instanceof RoutingError) {
                         throw new ReplanningError(
-                            409,
-                            'No se pudo validar la alternativa sobre la misma red peatonal. Solicitá nuevamente el desvío.',
+                            error.statusCode,
+                            error.message,
                         );
                     }
 
-                    // Los incidentes sobre superficies llegan a MCP
-                    // sin tramos completos bloqueados. Su geometría
-                    // se verifica en calculateSurfaceRoute.
-                    //
-                    // Si existen bloqueos por tramo, exigimos los
-                    // IDs recorridos para comprobarlos también.
-                    if (
-                        blockedSegmentIds.size > 0
-                        && !Array.isArray(route.segmentIds)
-                    ) {
-                        throw new ReplanningError(
-                            409,
-                            'No se pudieron verificar los tramos recorridos frente a los bloqueos peatonales.',
-                        );
-                    }
-
-                    if (
-                        (route.segmentIds ?? []).some((id) =>
-                            blockedSegmentIds.has(id)
-                        )
-                    ) {
-                        throw new ReplanningError(
-                            422,
-                            'La alternativa atraviesa un tramo peatonal bloqueado.',
-                        );
-                    }
-                }
-
-                // Los rectángulos se utilizan únicamente para
-                // incidentes que realmente bloquean un área.
-                if (
-                    routeIntersectsBlockedAreas(
-                        candidate.route.geometry.coordinates,
-                        blockedAreas,
-                    )
-                ) {
-                    throw new ReplanningError(
-                        422,
-                        'La alternativa no evita todos los bloqueos activos.',
-                    );
+                    throw error;
                 }
 
                 return {
@@ -408,8 +391,7 @@ export async function replanRoute(
                 );
             }
 
-            // Claude entrega los argumentos como un objeto.
-            // El contexto sigue siendo exclusivo del backend.
+            // Ninguna herramienta acepta que Claude cambie el contexto.
             const argumentsValue = call.input;
 
             if (
@@ -437,8 +419,6 @@ export async function replanRoute(
                 success: !result.isError,
             });
 
-            // Conserva la respuesta del asistente y vincula
-            // el resultado con el ID de la llamada original.
             messages.push({
                 role: 'assistant',
                 content: response.content,
@@ -446,19 +426,17 @@ export async function replanRoute(
 
             messages.push({
                 role: 'user',
-                content: [
-                    {
-                        type: 'tool_result',
-                        tool_use_id: call.id,
-                        is_error: result.isError ?? false,
-                        content: JSON.stringify({
-                            isError: result.isError ?? false,
-                            data:
-                                result.structuredContent
-                                ?? result.content,
-                        }),
-                    },
-                ],
+                content: [{
+                    type: 'tool_result',
+                    tool_use_id: call.id,
+                    is_error: result.isError ?? false,
+                    content: JSON.stringify({
+                        isError: result.isError ?? false,
+                        data:
+                            result.structuredContent
+                            ?? result.content,
+                    }),
+                }],
             });
 
             if (
