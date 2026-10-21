@@ -2,6 +2,11 @@ import { z } from 'zod';
 import { pool } from '../db';
 
 import {
+    insertSurfaceReport,
+    SurfaceReportConflictError,
+} from '../repositories/surface-reports';
+
+import {
     listIncidents,
 } from './incidents';
 
@@ -60,7 +65,7 @@ import type {
 } from '../types/surfaces';
 
 // Los consumidores actuales conservan los mismos imports.
-// El contexto y sus reglas se implementan ahora en un módulo propio.
+// El contexto y sus reglas se implementan en un módulo propio.
 export {
     contextSchema,
     getSurfaceContext,
@@ -401,98 +406,30 @@ export async function saveSurfaceReport(
         );
     }
 
-    const client = await pool.connect();
-
+    // Las reglas y los datos preparados pertenecen al servicio.
+    // El repositorio administra la conexión y la transacción.
     try {
-        await client.query('BEGIN');
-
-        const inserted = await client.query(`
-            INSERT INTO incidents (
-                id,
-                simulation_id,
-                type,
-                source,
-                description,
-                effect,
-                reporter_name,
-                south,
-                west,
-                north,
-                east,
-                starts_at,
-                expires_at,
-                pedestrian_impact
-            )
-            VALUES (
-                $1, $2, $3, 'manual', $4, $5, 'Usuario',
-                $6, $7, $8, $9, $10, $11, $12
-            )
-            ON CONFLICT (id) DO NOTHING
-            RETURNING id
-        `, [
-            input.id,
-            input.simulationId,
-            input.type,
-            input.description,
-            input.effect ?? 'blockage',
-            bounds.south,
-            bounds.west,
-            bounds.north,
-            bounds.east,
-            starts,
-            expires,
-            pedestrianImpact
-                ? JSON.stringify(pedestrianImpact)
-                : null,
-        ]);
-
-        if (inserted.rows.length) {
-            await client.query(`
-                INSERT INTO incident_surfaces (incident_id, impact)
-                VALUES ($1, $2)
-            `, [input.id, JSON.stringify(impact)]);
-        } else {
-            const previous = await client.query(`
-                SELECT i.id
-                FROM incidents i
-                JOIN incident_surfaces s ON s.incident_id = i.id
-                WHERE i.id = $1
-                  AND i.simulation_id = $2
-                  AND i.type = $3
-                  AND i.description = $4
-                  AND i.starts_at = $5
-                  AND i.expires_at = $6
-                  AND s.impact->'box' = $7::jsonb
-                  AND i.effect = $8
-            `, [
-                input.id,
-                input.simulationId,
-                input.type,
-                input.description,
-                starts,
-                expires,
-                JSON.stringify(input.box),
-                input.effect ?? 'blockage',
-            ]);
-
-            if (!previous.rows.length) {
-                throw new RoutingError(
-                    409,
-                    'Ese identificador ya pertenece a otro reporte.',
-                );
-            }
-        }
-
-        await client.query('COMMIT');
-
-        return {
+        return await insertSurfaceReport({
             id: input.id,
             simulationId: input.simulationId,
-        };
+            type: input.type,
+            description: input.description,
+            effect: input.effect ?? 'blockage',
+            blockedArea: bounds,
+            startsAt: starts,
+            expiresAt: expires,
+            pedestrianImpact,
+            impact,
+            box: input.box,
+        });
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (error instanceof SurfaceReportConflictError) {
+            throw new RoutingError(
+                409,
+                error.message,
+            );
+        }
+
         throw error;
-    } finally {
-        client.release();
     }
 }

@@ -4,6 +4,7 @@ import type {
 
 import type {
     SurfaceImpact,
+    Box,
 } from '../../../shared/surfaces';
 
 export type SurfaceIncident = Incident & {
@@ -20,4 +21,26 @@ export type SurfaceContext = {
     networkVersion: string;
     widthMeters: number | null;
     lateralMarginMeters: number | null;
+};
+
+// Datos ya preparados por el servicio para guardar ambas tablas.
+//
+// La caja se conserva aparte porque también identifica los reintentos.
+// El repositorio no vuelve a calcular geometrías, límites ni fechas.
+export type SurfaceReportToInsert = Pick<
+    Incident,
+    | 'id'
+    | 'simulationId'
+    | 'type'
+    | 'description'
+    | 'effect'
+    | 'blockedArea'
+    | 'startsAt'
+    | 'expiresAt'
+> & {
+    pedestrianImpact:
+        NonNullable<Incident['pedestrianImpact']> | null;
+
+    impact: SurfaceImpact;
+    box: Box;
 };
