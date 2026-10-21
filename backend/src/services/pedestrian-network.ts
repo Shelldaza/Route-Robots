@@ -12,42 +12,15 @@ import {
     segmentIndicesInBounds,
 } from './pedestrian-compact';
 
-import type {
-    Bounds,
-    CompactNetwork,
-    PedestrianRouteInput,
-} from './pedestrian-compact';
+import type { Bounds } from '../../../shared/contracts/geography'
+import type { CompactNetwork, PedestrianRouteInput } from './pedestrian-compact'
 
 export {
     distanceMeters,
 } from './pedestrian-compact';
 
-type Coordinate = [number, number];
-
-export type PedestrianSegment = {
-    id: string;
-    wayId: number;
-    from: string;
-    to: string;
-    kind: 'sidewalk' | 'crossing' | 'path';
-    name: string;
-    coordinates: Coordinate[];
-};
-
-export type PedestrianNetwork = {
-    version: string;
-    name: string;
-    attribution: string;
-    source: string;
-    retrievedAt: string;
-    bounds: {
-        south: number;
-        west: number;
-        north: number;
-        east: number;
-    };
-    segments: PedestrianSegment[];
-};
+import type { PedestrianSegment, PedestrianNetwork, PedestrianImpact } from '../../../shared/contracts/pedestrian';
+export type { PedestrianSegment, PedestrianNetwork, PedestrianImpact } from '../../../shared/contracts/pedestrian';
 
 const compact = decodeCompactNetwork(
     readFileSync(
@@ -147,11 +120,6 @@ export const pedestrianSelectionSchema = z.object({
         });
     }
 });
-
-export type PedestrianImpact =
-    z.infer<typeof pedestrianSelectionSchema> & {
-        segments: PedestrianSegment[];
-    };
 
 export function resolvePedestrianSelection(
     value: unknown,

@@ -1,29 +1,8 @@
 import * as L from 'leaflet'
 
-export type PedestrianSegment = {
-  id: string
-  wayId: number
-  from: string
-  to: string
-  kind: 'sidewalk' | 'crossing' | 'path'
-  name: string
-  coordinates: [number, number][]
-}
-export type PedestrianNetwork = {
-  version: string
-  name: string
-  attribution: string
-  source: string
-  retrievedAt: string
-  bounds: { south: number; west: number; north: number; east: number }
-  segments: PedestrianSegment[]
-}
-export type PedestrianImpact = {
-  networkVersion: string
-  scope: 'segment' | 'street_section'
-  segmentIds: string[]
-  segments: PedestrianSegment[]
-}
+import type { PedestrianSegment, PedestrianNetwork, PedestrianImpact } from '../../../shared/contracts/pedestrian'
+import type { Bounds } from '../../../shared/contracts/geography'
+export type { PedestrianSegment, PedestrianNetwork, PedestrianImpact } from '../../../shared/contracts/pedestrian'
 
 export function isPedestrianImpact(value: unknown): value is PedestrianImpact {
   if (!value || typeof value !== 'object') return false
@@ -49,12 +28,7 @@ function isPedestrianSegment(value: unknown): value is PedestrianSegment {
 }
 export async function fetchPedestrianNetwork(
   signal: AbortSignal,
-  bounds?: {
-    south: number
-    west: number
-    north: number
-    east: number
-  },
+  bounds?: Bounds,
 ): Promise<PedestrianNetwork> {
   const query = bounds
     ? `?${new URLSearchParams({

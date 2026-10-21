@@ -10,16 +10,9 @@ import {
   isArea,
 } from '../../../shared/surfaces'
 
-import type {
-  Area,
-  Box,
-  Point,
-  SurfaceImpact,
-} from '../../../shared/surfaces'
+import type { Area, Box, Point, SurfaceImpact } from '../../../shared/contracts/surfaces'
 
-import type {
-  PedestrianNetwork,
-} from '../utils/pedestrian-network'
+import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
 
 import {
   isPedestrianImpact,
@@ -41,10 +34,7 @@ import type {
 
 import './SurfaceIncidentEditor.css'
 
-type Effect =
-  | 'informational'
-  | 'caution'
-  | 'blockage'
+import type { IncidentEffect as Effect } from '../../../shared/contracts/incidents'
 
 type CatalogEntry = {
   type: string

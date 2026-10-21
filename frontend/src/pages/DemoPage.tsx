@@ -6,7 +6,7 @@ import './DemoPage.css'
 import RobotSetupSection from '../components/RobotSetupSection'
 import type { Robot } from '../components/RobotSetupSection'
 import { drawPedestrianNetwork, fetchPedestrianNetwork } from '../utils/pedestrian-network'
-import type { PedestrianNetwork } from '../utils/pedestrian-network'
+import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
 

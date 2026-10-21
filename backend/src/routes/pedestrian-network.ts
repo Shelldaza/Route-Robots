@@ -1,3 +1,4 @@
+import type { PedestrianNetworkResponse } from '../../../shared/contracts/pedestrian';
 import { Router } from 'express';
 import { z } from 'zod';
 
@@ -28,7 +29,7 @@ pedestrianNetworkRouter.get('/', (req, res) => {
             ...metadata,
             segmentCount: segments.length,
             segments: [],
-        });
+        } satisfies PedestrianNetworkResponse);
         return;
     }
 
@@ -67,5 +68,5 @@ pedestrianNetworkRouter.get('/', (req, res) => {
         ...metadata,
         segmentCount: segments.length,
         segments: visible,
-    });
+    } satisfies PedestrianNetworkResponse);
 });

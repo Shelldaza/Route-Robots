@@ -1,20 +1,35 @@
 import { z } from 'zod';
 import { pool } from '../db';
 
-import { listIncidents } from './incidents';
-import type { Incident } from './incidents';
+import {
+    insertSurfaceReport,
+    SurfaceReportConflictError,
+} from '../repositories/surface-reports';
 
-import { RoutingError } from './routing';
+import {
+    listIncidents,
+} from './incidents';
+
+import {
+    RoutingError,
+} from './routing';
 
 import {
     pedestrianNetwork,
     resolvePedestrianSelection,
 } from './pedestrian-network';
 
-import { queryPedestrianSegments } from './pedestrian-spatial';
+import {
+    queryPedestrianSegments,
+} from './pedestrian-spatial';
 
-import { isIncidentType } from '../config/incident-catalog';
-import type { IncidentType } from '../config/incident-catalog';
+import {
+    isIncidentType,
+} from '../config/incident-catalog';
+
+import type {
+    IncidentType,
+} from '../config/incident-catalog';
 
 import {
     queryWalkSurfaces,
@@ -35,35 +50,31 @@ import {
     lineHits,
 } from '../../../shared/surfaces';
 
+import type { SurfaceImpact } from '../../../shared/contracts/surfaces'
+
+import {
+    getSurfaceContext,
+    robotRadius,
+} from './surface-context';
+
 import type {
-    SurfaceImpact,
-} from '../../../shared/surfaces';
+    SurfaceContext,
+    SurfaceIncident,
+} from '../types/surfaces';
 
-export type SurfaceIncident = Incident & {
-    surfaceImpact?: SurfaceImpact | null;
-};
+// Los consumidores actuales conservan los mismos imports.
+// El contexto y sus reglas se implementan en un módulo propio.
+export {
+    contextSchema,
+    getSurfaceContext,
+    registerSurfaceContext,
+    robotRadius,
+} from './surface-context';
 
-export type SurfaceContext = {
-    simulationId: string;
-    robotId: string;
-    networkVersion: string;
-    widthMeters: number | null;
-    lateralMarginMeters: number | null;
-};
-
-const contextColumns = `
-    simulation_id AS "simulationId",
-    robot_id AS "robotId",
-    network_version AS "networkVersion",
-    width_meters AS "widthMeters",
-    lateral_margin_meters AS "lateralMarginMeters"
-`;
-
-export const contextSchema = z.strictObject({
-    simulationId: z.uuid(),
-    robotId: z.uuid(),
-    networkVersion: z.string().min(1),
-});
+export type {
+    SurfaceContext,
+    SurfaceIncident,
+} from '../types/surfaces';
 
 const pointSchema = z.tuple([
     z.number().finite().min(-180).max(180),
@@ -85,7 +96,12 @@ export const previewSchema = z.strictObject({
     }),
 
     coordinates: z.array(pointSchema).max(20000),
-    effect: z.enum(['informational', 'caution', 'blockage']).optional(),
+
+    effect: z.enum([
+        'informational',
+        'caution',
+        'blockage',
+    ]).optional(),
 });
 
 export const surfaceReportSchema = previewSchema.extend({
@@ -97,7 +113,8 @@ export const surfaceReportSchema = previewSchema.extend({
     multipleSurfaces: z.boolean(),
 });
 
-export type SurfaceReport = z.infer<typeof surfaceReportSchema>;
+export type SurfaceReport =
+    z.infer<typeof surfaceReportSchema>;
 
 export async function existingSurfaceReport(
     input: SurfaceReport,
@@ -160,89 +177,6 @@ export async function existingSurfaceReport(
     }
 
     return true;
-}
-
-export async function getSurfaceContext(
-    simulationId: string,
-): Promise<SurfaceContext | null> {
-    const result = await pool.query<SurfaceContext>(`
-        SELECT ${contextColumns}
-        FROM surface_scenarios
-        WHERE simulation_id = $1
-    `, [simulationId]);
-
-    return result.rows[0] ?? null;
-}
-
-export async function registerSurfaceContext(
-    input: z.infer<typeof contextSchema>,
-): Promise<SurfaceContext> {
-    if (input.networkVersion !== pedestrianNetwork.version) {
-        throw new RoutingError(
-            409,
-            'La red cambió. Iniciá un escenario nuevo.',
-        );
-    }
-
-    await pool.query(`
-        INSERT INTO surface_scenarios (
-            simulation_id,
-            robot_id,
-            network_version,
-            width_meters,
-            lateral_margin_meters
-        )
-        SELECT
-            $1,
-            r.id,
-            $3,
-            m.width_meters,
-            m.lateral_margin_meters
-        FROM robots r
-        JOIN robot_models m ON m.id = r.model_id
-        WHERE r.id = $2
-        ON CONFLICT (simulation_id) DO NOTHING
-    `, [
-        input.simulationId,
-        input.robotId,
-        input.networkVersion,
-    ]);
-
-    const context = await getSurfaceContext(input.simulationId);
-
-    if (!context) {
-        throw new RoutingError(404, 'El robot no existe.');
-    }
-
-    if (
-        context.robotId !== input.robotId
-        || context.networkVersion !== input.networkVersion
-    ) {
-        throw new RoutingError(
-            409,
-            'El escenario ya tiene otro robot o red.',
-        );
-    }
-
-    return context;
-}
-
-export function robotRadius(context: SurfaceContext): number {
-    if (
-        context.widthMeters === null
-        || context.lateralMarginMeters === null
-        || !Number.isFinite(context.widthMeters)
-        || !Number.isFinite(context.lateralMarginMeters)
-        || context.widthMeters <= 0
-        || context.lateralMarginMeters < 0
-    ) {
-        throw new RoutingError(
-            409,
-            'Completá el ancho y el margen lateral del modelo del robot para evaluar el paso.',
-        );
-    }
-
-    return context.widthMeters / 2 + context.lateralMarginMeters;
 }
 
 export async function surfaceHistory(
@@ -464,101 +398,36 @@ export async function saveSurfaceReport(
     );
 
     if (!Number.isFinite(expires.getTime())) {
-        throw new RoutingError(400, 'La fecha de fin es inválida.');
+        throw new RoutingError(
+            400,
+            'La fecha de fin es inválida.',
+        );
     }
 
-    const client = await pool.connect();
-
+    // Las reglas y los datos preparados pertenecen al servicio.
+    // El repositorio administra la conexión y la transacción.
     try {
-        await client.query('BEGIN');
-
-        const inserted = await client.query(`
-            INSERT INTO incidents (
-                id,
-                simulation_id,
-                type,
-                source,
-                description,
-                effect,
-                reporter_name,
-                south,
-                west,
-                north,
-                east,
-                starts_at,
-                expires_at,
-                pedestrian_impact
-            )
-            VALUES (
-                $1, $2, $3, 'manual', $4, $5, 'Usuario',
-                $6, $7, $8, $9, $10, $11, $12
-            )
-            ON CONFLICT (id) DO NOTHING
-            RETURNING id
-        `, [
-            input.id,
-            input.simulationId,
-            input.type,
-            input.description,
-            input.effect ?? 'blockage',
-            bounds.south,
-            bounds.west,
-            bounds.north,
-            bounds.east,
-            starts,
-            expires,
-            pedestrianImpact
-                ? JSON.stringify(pedestrianImpact)
-                : null,
-        ]);
-
-        if (inserted.rows.length) {
-            await client.query(`
-                INSERT INTO incident_surfaces (incident_id, impact)
-                VALUES ($1, $2)
-            `, [input.id, JSON.stringify(impact)]);
-        } else {
-            const previous = await client.query(`
-                SELECT i.id
-                FROM incidents i
-                JOIN incident_surfaces s ON s.incident_id = i.id
-                WHERE i.id = $1
-                  AND i.simulation_id = $2
-                  AND i.type = $3
-                  AND i.description = $4
-                  AND i.starts_at = $5
-                  AND i.expires_at = $6
-                  AND s.impact->'box' = $7::jsonb
-                  AND i.effect = $8
-            `, [
-                input.id,
-                input.simulationId,
-                input.type,
-                input.description,
-                starts,
-                expires,
-                JSON.stringify(input.box),
-                input.effect ?? 'blockage',
-            ]);
-
-            if (!previous.rows.length) {
-                throw new RoutingError(
-                    409,
-                    'Ese identificador ya pertenece a otro reporte.',
-                );
-            }
-        }
-
-        await client.query('COMMIT');
-
-        return {
+        return await insertSurfaceReport({
             id: input.id,
             simulationId: input.simulationId,
-        };
+            type: input.type,
+            description: input.description,
+            effect: input.effect ?? 'blockage',
+            blockedArea: bounds,
+            startsAt: starts,
+            expiresAt: expires,
+            pedestrianImpact,
+            impact,
+            box: input.box,
+        });
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (error instanceof SurfaceReportConflictError) {
+            throw new RoutingError(
+                409,
+                error.message,
+            );
+        }
+
         throw error;
-    } finally {
-        client.release();
     }
 }

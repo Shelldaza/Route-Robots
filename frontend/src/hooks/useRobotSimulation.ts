@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { buildPath, samplePath } from '../utils/simulation-path'
-import type {
-  Coordinate,
-  SimulationPath,
-} from '../utils/simulation-path'
+import type { Coordinate } from '../../../shared/contracts/geography'
+import type { SimulationPath } from '../utils/simulation-path'
 
 type SimulationStatus =
   | 'empty'

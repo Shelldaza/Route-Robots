@@ -11,10 +11,7 @@ import {
     EMPTY,
 } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Point,
-} from '../../../shared/surfaces';
+import type { Area, Point } from '../../../shared/contracts/surfaces'
 
 export class SurfaceGeometryError extends Error {
     constructor(

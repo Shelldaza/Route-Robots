@@ -33,11 +33,7 @@ import {
     world,
 } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Point,
-    Box,
-} from '../../../shared/surfaces';
+import type { Area, Point, Box } from '../../../shared/contracts/surfaces'
 
 export const placementSchema = z.strictObject({
     simulationId: z.uuid(),

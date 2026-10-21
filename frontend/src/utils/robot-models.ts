@@ -1,42 +1,30 @@
+import type {
+  DataSource,
+  Robot,
+  RobotDimensions,
+  RobotModel,
+} from '../../../shared/contracts/robots.ts'
+
+export type {
+  DataSource,
+  Robot,
+  RobotModel,
+} from '../../../shared/contracts/robots.ts'
+
+// Compatibilidad temporal para los componentes existentes.
+// Los nuevos consumidores deben importar desde api/client.
+export {
+  fetchJson,
+  errorMessage,
+} from '../api/client.ts'
+
+// Las etiquetas pertenecen a la interfaz; los valores válidos están en el contrato.
 export const DATA_SOURCES = {
   simulated: 'Simulado para la demo',
   documented: 'Documentación técnica',
   measured: 'Medición',
   unknown: 'Sin verificar',
-} as const
-
-export type DataSource = keyof typeof DATA_SOURCES
-
-type OperatingProfile = {
-  speedKmh: number
-  batteryCapacityWh: number
-  consumptionWhPerKm: number
-  maxSlopePercent: number | null
-}
-
-type Dimensions = {
-  widthMeters: number | null
-  lengthMeters: number | null
-  lateralMarginMeters: number | null
-}
-
-export type RobotModel = OperatingProfile & Dimensions & {
-  id: string
-  name: string
-  dataSource: DataSource
-  sourceNotes: string | null
-  createdAt: string
-}
-
-export type Robot = OperatingProfile & Dimensions & {
-  id: string
-  name: string
-  model: string | null
-  modelId: string | null
-  dataSource: DataSource | null
-  sourceNotes: string | null
-  createdAt: string
-}
+} as const satisfies Record<DataSource, string>
 
 function positive(value: unknown): value is number {
   return (
@@ -65,6 +53,8 @@ function isDataSource(value: unknown): value is DataSource {
   )
 }
 
+// Comprueba los campos comunes de las respuestas de modelos y unidades.
+// Los tipos TypeScript solos no validan los datos recibidos por HTTP.
 function profile(value: Record<string, unknown>): boolean {
   return (
     typeof value.id === 'string'
@@ -93,6 +83,7 @@ function profile(value: Record<string, unknown>): boolean {
   )
 }
 
+// Estas comprobaciones permiten usar la respuesta solo si respeta el contrato.
 export function isRobotModel(value: unknown): value is RobotModel {
   if (!value || typeof value !== 'object') return false
 
@@ -119,7 +110,9 @@ export function isRobot(value: unknown): value is Robot {
 
 // Referencia geométrica; no certifica un paso
 // ni contempla todavía las maniobras.
-export function requiredWidth(profile: Dimensions): number | null {
+export function requiredWidth(
+  profile: RobotDimensions,
+): number | null {
   if (
     !positive(profile.widthMeters)
     || !nonnegative(profile.lateralMarginMeters)
@@ -131,52 +124,4 @@ export function requiredWidth(profile: Dimensions): number | null {
     profile.widthMeters + 2 * profile.lateralMarginMeters
 
   return Number.isFinite(width) ? width : null
-}
-
-export async function fetchJson(
-  url: string,
-  init: RequestInit = {},
-): Promise<unknown> {
-  const response = await fetch(url, {
-    ...init,
-    signal: init.signal
-      ? AbortSignal.any([
-          init.signal,
-          AbortSignal.timeout(40000),
-        ])
-      : AbortSignal.timeout(40000),
-  })
-
-  const body: unknown = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const message =
-      body
-      && typeof body === 'object'
-      && 'message' in body
-      && typeof body.message === 'string'
-        ? body.message
-        : 'No se pudo completar la operación.'
-
-    throw new Error(message)
-  }
-
-  return body
-}
-
-export function errorMessage(error: unknown): string {
-  if (
-    error instanceof Error
-    && error.name === 'TimeoutError'
-  ) {
-    return 'La consulta tardó demasiado. Intentá nuevamente.'
-  }
-
-  if (error instanceof TypeError) {
-    return 'No se pudo conectar con el backend.'
-  }
-
-  return error instanceof Error
-    ? error.message
-    : 'Ocurrió un error inesperado.'
 }

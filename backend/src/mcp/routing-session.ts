@@ -1,33 +1,41 @@
+import { summarizeRoutingIncident } from '../services/routing-evaluation';
 import {
     Client,
     StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+
 import {
     createMcpHandler,
     McpServer,
 } from '@modelcontextprotocol/server';
+
 import { z } from 'zod';
 
 import {
     RoutingError,
 } from '../services/routing';
 
-import type {
-    CalculatedRoute,
-} from '../services/routing';
-import type {
-    Incident,
-} from '../services/incidents';
+import {
+    toRoutingIncidents,
+    buildRestrictedRouteRequest,
+} from '../services/routing-restrictions';
 
 import {
     routingContextSchema,
 } from '../schemas/routing-context';
+
+import type {
+    CalculatedRoute,
+} from '../services/routing';
+
+import type {
+    RoutingIncidentInput,
+} from '../types/routing-restrictions';
+
 import type {
     RoutingContext,
 } from '../schemas/routing-context';
 
-// Conserva los imports existentes de este tipo
-// desde otros archivos del proyecto.
 export type {
     RoutingContext,
 } from '../schemas/routing-context';
@@ -36,7 +44,14 @@ export type RoutingServices = {
     listActiveIncidents: (
         simulationId: string,
         scenarioTime?: string,
-    ) => Promise<Incident[]>;
+    ) => Promise<RoutingIncidentInput[]>;
+
+    // Debe consultar datos nuevos; nunca reutilizar el contexto inicial.
+    // Si no se implementa, el agente vuelve a llamar listActiveIncidents.
+    refreshActiveIncidents?: (
+        simulationId: string,
+        scenarioTime?: string,
+    ) => Promise<RoutingIncidentInput[]>;
 
     calculateRoute: (
         input: unknown,
@@ -48,30 +63,45 @@ function toolResult(
     isError = false,
 ) {
     return {
-        content: [
-            {
-                type: 'text' as const,
-                text: JSON.stringify(data),
-            },
-        ],
+        content: [{
+            type: 'text' as const,
+            text: JSON.stringify(data),
+        }],
         structuredContent: data,
         isError,
     };
 }
 
+/**
+ * Crea una sesión MCP con contexto fijado por el backend.
+ *
+ * El modelo puede solicitar herramientas, pero no cambiar
+ * la simulación, los extremos ni la fecha.
+ */
 export async function createRoutingMcpSession(
     value: RoutingContext,
     services: RoutingServices,
 ) {
     const parsed = routingContextSchema.parse(value);
 
-    // Si la sesión se utiliza directamente, también fija
-    // una sola fecha para todas sus herramientas.
     const context = {
         ...parsed,
         scenarioTime:
             parsed.scenarioTime ?? new Date().toISOString(),
     };
+
+    // Ambas herramientas trabajan con la misma captura de incidentes.
+    // La promesa pertenece a esta sesión y no se comparte globalmente.
+    let incidentsPromise: Promise<ReturnType<typeof toRoutingIncidents>> | undefined;
+
+    function readIncidents() {
+        return incidentsPromise ??= services.listActiveIncidents(
+            context.simulationId,
+            context.scenarioTime,
+        ).then((records) =>
+            toRoutingIncidents(records, context.networkVersion)
+        );
+    }
 
     let candidate: {
         route: CalculatedRoute;
@@ -93,16 +123,12 @@ export async function createRoutingMcpSession(
             },
             async () => {
                 try {
-                    const incidents =
-                        await services.listActiveIncidents(
-                            context.simulationId,
-                            context.scenarioTime,
-                        );
+                    const incidents = await readIncidents();
 
                     return toolResult({
                         status: 'ok',
                         scenarioTime: context.scenarioTime,
-                        incidents,
+                        incidents: incidents.map(summarizeRoutingIncident),
                     });
                 } catch {
                     return toolResult(
@@ -128,11 +154,7 @@ export async function createRoutingMcpSession(
                 candidate = null;
 
                 try {
-                    const incidents =
-                        await services.listActiveIncidents(
-                            context.simulationId,
-                            context.scenarioTime,
-                        );
+                    const incidents = await readIncidents();
 
                     if (incidents.length === 0) {
                         return toolResult(
@@ -145,28 +167,15 @@ export async function createRoutingMcpSession(
                         );
                     }
 
-                    if (!context.networkVersion && incidents.some((incident) => incident.pedestrianImpact)) {
-                        throw new RoutingError(400, 'Los incidentes de vereda requieren una entrega en el sandbox peatonal.');
-                    }
-                    const route =
-                        await services.calculateRoute({
-                            origin: context.origin,
-                            destination: context.destination,
-                            blockedAreas: incidents.filter((incident) => !incident.pedestrianImpact).map(
-                                (incident) =>
-                                    incident.blockedArea,
-                            ),
-                            ...(context.networkVersion ? {
-                                networkVersion: context.networkVersion,
-                                strictOrigin: true,
-                                blockedSegmentIds: [...new Set(incidents.flatMap((incident) => {
-                                    if (incident.pedestrianImpact && incident.pedestrianImpact.networkVersion !== context.networkVersion) {
-                                        throw new RoutingError(409, 'Hay incidentes de otra versión de red. Iniciá un escenario nuevo.');
-                                    }
-                                    return incident.pedestrianImpact?.segmentIds ?? [];
-                                }))],
-                            } : {}),
-                        });
+                    // La traducción del alcance queda centralizada.
+                    // MCP no necesita interpretar geometrías ni
+                    // reconocer impactos peatonales ficticios.
+                    const route = await services.calculateRoute(
+                        buildRestrictedRouteRequest(
+                            context,
+                            incidents,
+                        ),
+                    );
 
                     const incidentIds = incidents.map(
                         (incident) => incident.id,
@@ -177,8 +186,7 @@ export async function createRoutingMcpSession(
                         incidentIds,
                     };
 
-                    // La geometría queda en el backend.
-                    // El modelo recibe solo el resumen.
+                    // La ruta completa permanece en el backend.
                     return toolResult({
                         status: 'alternative_calculated',
                         scenarioTime: context.scenarioTime,

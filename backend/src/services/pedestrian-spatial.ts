@@ -1,9 +1,7 @@
 import {
     queryCompactSegments,
 } from './pedestrian-network';
-import type {
-    Bounds,
-} from './pedestrian-compact';
+import type { Bounds } from '../../../shared/contracts/geography'
 
 export type NetworkBounds = Bounds;
 
