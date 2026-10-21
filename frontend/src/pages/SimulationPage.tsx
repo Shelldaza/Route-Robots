@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useRef,
   useState,
 } from 'react'
 
@@ -9,8 +8,9 @@ import {
   useLocation,
 } from 'react-router'
 
-import * as L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import {
+  useSimulationMap,
+} from '../hooks/useSimulationMap'
 
 import {
   useReplanning,
@@ -30,7 +30,6 @@ import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
 
 import {
-  drawPedestrianNetwork,
   fetchPedestrianNetwork,
 } from '../utils/pedestrian-network'
 
@@ -132,34 +131,15 @@ function formatNumber(value: number): string {
   })
 }
 
-// La pantalla coordina el mapa, los controles y las métricas.
-// La solicitud de desvíos y sus estados pertenecen a useReplanning.
+// La pantalla coordina los controles y las métricas de la entrega.
+// useReplanning gestiona los desvíos y useSimulationMap representa el mapa.
 function SimulationContent({
   navigationState,
 }: {
   navigationState: unknown
 }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<L.Map | null>(null)
-
-  const savedMapViewRef = useRef<{
-    route: RouteResponse
-    center: L.LatLng
-    zoom: number
-  } | null>(null)
-
-  const [incidentMap, setIncidentMap] =
-    useState<L.Map | null>(null)
-
   const [incidentDraftOpen, setIncidentDraftOpen] =
     useState(false)
-
-  // Las referencias permiten conservar objetos de Leaflet entre renders.
-  const selectingLocationRef = useRef(false)
-  const blockedLayerRef = useRef<L.LayerGroup | null>(null)
-  const robotMarkerRef = useRef<L.Marker | null>(null)
-  const remainingRouteRef = useRef<L.Polyline | null>(null)
-  const originMarkerRef = useRef<L.CircleMarker | null>(null)
 
   const draft = isDeliveryDraft(navigationState)
     ? navigationState
@@ -286,11 +266,6 @@ function SimulationContent({
     controlsLocked
     || motion.status === 'running'
 
-  useEffect(() => {
-    selectingLocationRef.current =
-      selectingLocation && !evaluationBusy
-  }, [selectingLocation, evaluationBusy])
-
   // La ruta inicial tiene su propio ciclo de carga y cancelación.
   useEffect(() => {
     if (!draft) return
@@ -332,329 +307,18 @@ function SimulationContent({
     return () => controller.abort()
   }, [draft, retryKey, loadRoute])
 
-  // Ciclo de vida de Leaflet. Al reemplazar el recorrido conservamos
-  // el encuadre para que la replanificación no aleje el mapa.
-  useEffect(() => {
-    if (!containerRef.current || !route) return
-
-    const activeRoute = alternative ?? route
-
-    const positions: L.LatLngTuple[] =
-      activeRoute.geometry.coordinates.map(
-        ([lng, lat]) => [lat, lng],
-      )
-
-    const origin = positions[0]
-    const destination = positions[positions.length - 1]
-
-    if (!origin || !destination) return
-
-    const map = L.map(
-      containerRef.current,
-      {
-        maxZoom: 22,
-      },
-    ).setView(origin, 15)
-
-    mapRef.current = map
-    setIncidentMap(map)
-
-    L.tileLayer(
-      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        maxNativeZoom: 19,
-        maxZoom: 22,
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      },
-    ).addTo(map)
-
-    remainingRouteRef.current = L.polyline(
-      [],
-      {
-        color: '#0f766e',
-        weight: 6,
-        opacity: 0.95,
-
-        // El clic atraviesa el recorrido y llega al editor.
-        interactive: false,
-      },
-    ).addTo(map)
-
-    if (!alternative) {
-      originMarkerRef.current = L.circleMarker(
-        origin,
-        {
-          radius: 8,
-          color: '#fff',
-          weight: 3,
-          fillColor: '#15803d',
-          fillOpacity: 1,
-        },
-      )
-        .bindTooltip('Origen', {
-          permanent: true,
-          direction: 'top',
-        })
-        .addTo(map)
-    }
-
-    L.circleMarker(destination, {
-      radius: 8,
-      color: '#fff',
-      weight: 3,
-      fillColor: '#2563eb',
-      fillOpacity: 1,
-    })
-      .bindTooltip('Destino', {
-        permanent: true,
-        direction: 'top',
-      })
-      .addTo(map)
-
-    const robotIcon = L.icon({
-      iconUrl: robotLogo,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
-      className: 'simulation-robot-icon',
-    })
-
-    const currentPosition = getSnapshot().position
-
-    const markerPosition: L.LatLngTuple =
-      currentPosition
-        ? [
-            currentPosition[1],
-            currentPosition[0],
-          ]
-        : origin
-
-    robotMarkerRef.current = L.marker(
-      markerPosition,
-      {
-        icon: robotIcon,
-        alt: 'Robot simulado',
-        title: 'Robot simulado',
-        zIndexOffset: 1000,
-      },
-    )
-      .bindTooltip('Robot simulado')
-      .addTo(map)
-
-    blockedLayerRef.current =
-      L.layerGroup().addTo(map)
-
-    const savedView = savedMapViewRef.current
-
-    if (savedView?.route === route) {
-      map.setView(
-        savedView.center,
-        savedView.zoom,
-      )
-    } else {
-      map.fitBounds(
-        L.latLngBounds(positions),
-        {
-          padding: [40, 40],
-          maxZoom: 17,
-        },
-      )
-    }
-
-    return () => {
-      savedMapViewRef.current = {
-        route,
-        center: map.getCenter(),
-        zoom: map.getZoom(),
-      }
-
-      mapRef.current = null
-      setIncidentMap(null)
-      remainingRouteRef.current = null
-      originMarkerRef.current = null
-      robotMarkerRef.current = null
-      blockedLayerRef.current = null
-
-      map.remove()
-    }
-  }, [route, alternative, getSnapshot])
-
-  useEffect(() => {
-    if (!incidentMap || !network) return
-
-    // Los caminos permanecen visibles aunque no estemos editando.
-    const layer = drawPedestrianNetwork(
-      incidentMap,
-      network,
-    )
-
-    return () => {
-      layer.remove()
-    }
-  }, [incidentMap, network])
-
-  useEffect(() => {
-    // Se actualizan las capas existentes en cada paso de la animación.
-    // Reconstruir el mapa por fotograma haría perder el encuadre.
-    if (motion.position) {
-      const [lng, lat] = motion.position
-
-      robotMarkerRef.current?.setLatLng([
-        lat,
-        lng,
-      ])
-    }
-
-    // Al llegar se vacía la línea, aunque el muestreo conserve
-    // coordenadas repetidas del destino.
-    const remainingPositions: L.LatLngTuple[] =
-      motion.status === 'completed'
-        ? []
-        : motion.remainingCoordinates.map(
-            ([lng, lat]) => [lat, lng],
-          )
-
-    remainingRouteRef.current?.setLatLngs(
-      remainingPositions,
-    )
-
-    if (
-      motion.traveledMeters > 0
-      || motion.status === 'completed'
-    ) {
-      originMarkerRef.current?.remove()
-      originMarkerRef.current = null
-    }
-  }, [
-    motion.position,
-    motion.remainingCoordinates,
-    motion.traveledMeters,
-    motion.status,
+  // El editor recibe la misma instancia del mapa durante toda la entrega.
+  const {
+    containerRef,
+    map: incidentMap,
+    scrollToMap,
+  } = useSimulationMap({
     route,
     alternative,
-  ])
-
-  useEffect(() => {
-    const layer = blockedLayerRef.current
-
-    if (!layer) return
-
-    layer.clearLayers()
-
-    // El mapa incluye información y precauciones.
-    // Solo los bloqueos generan restricciones sobre el recorrido.
-    activeIncidents.forEach((incident) => {
-      const appearance = getIncidentAppearance(
-        incident.type,
-      )
-
-      incident.pedestrianImpact?.segments.forEach(
-        (segment) => {
-          L.polyline(
-            segment.coordinates.map(
-              ([lng, lat]): L.LatLngTuple => [
-                lat,
-                lng,
-              ],
-            ),
-            {
-              color:
-                incident.effect === 'blockage'
-                  ? '#dc2626'
-                  : incident.effect === 'caution'
-                    ? '#d97706'
-                    : '#2563eb',
-              weight: 9,
-              opacity: 0.8,
-              interactive: false,
-            },
-          ).addTo(layer)
-        },
-      )
-
-      if (incident.surfaceImpact) {
-        L.geoJSON(
-          incident.surfaceImpact.geometry,
-          {
-            style: {
-              color:
-                incident.effect === 'blockage'
-                  ? '#dc2626'
-                  : incident.effect === 'caution'
-                    ? '#d97706'
-                    : '#2563eb',
-              weight: 2,
-              fillOpacity: 0.3,
-            },
-            interactive: false,
-          },
-        ).addTo(layer)
-      }
-
-      const area = incident.blockedArea
-
-      const center: L.LatLngTuple = [
-        (area.south + area.north) / 2,
-        (area.west + area.east) / 2,
-      ]
-
-      const icon = L.icon({
-        iconUrl: appearance.iconUrl,
-        iconSize: [48, 48],
-        iconAnchor: [24, 24],
-        tooltipAnchor: [0, -24],
-        className: 'simulation-blockage-icon',
-      })
-
-      const effectLabel =
-        incident.effect === 'blockage'
-          ? 'Paso bloqueado'
-          : incident.effect === 'caution'
-            ? 'Circular con precaución'
-            : 'Información del recorrido'
-
-      // Leaflet interpreta cadenas como HTML.
-      // textContent muestra las descripciones como texto literal.
-      const tooltip = document.createElement('div')
-
-      const heading = document.createElement('strong')
-      heading.textContent = appearance.label
-
-      const effect = document.createElement('div')
-      effect.textContent = effectLabel
-
-      const description = document.createElement('div')
-      description.textContent = incident.description
-
-      const reporter = document.createElement('div')
-      reporter.textContent =
-        `Informó: ${incident.reporterName ?? 'Sin identificar'}`
-
-      const expiration = document.createElement('div')
-      expiration.textContent =
-        `Vigente hasta: ${new Date(incident.expiresAt).toLocaleString('es-AR')}`
-
-      tooltip.append(
-        heading,
-        effect,
-        description,
-        reporter,
-        expiration,
-      )
-
-      L.marker(center, {
-        icon,
-        alt: appearance.label,
-        title: appearance.label,
-        keyboard: true,
-        riseOnHover: true,
-      })
-        .bindTooltip(tooltip, {
-          direction: 'top',
-        })
-        .addTo(layer)
-    })
-  }, [route, alternative, activeIncidents])
+    network,
+    motion,
+    activeIncidents,
+  })
 
   function pauseScenarioAndRobot() {
     motion.pause()
@@ -670,18 +334,11 @@ function SimulationContent({
     }
 
     pauseScenarioAndRobot()
-    selectingLocationRef.current = true
     setSelectingLocation(true)
-
-    mapRef.current
-      ?.getContainer()
-      .scrollIntoView({
-        block: 'center',
-      })
+    scrollToMap()
   }
 
   function cancelIncidentSelection() {
-    selectingLocationRef.current = false
     setSelectingLocation(false)
 
     // El usuario decide cuándo reanudar el recorrido.
@@ -765,8 +422,6 @@ function SimulationContent({
 
   function handleCreatingChange(creating: boolean) {
     if (creating) {
-      // Bloquea el borrador inmediatamente, antes del próximo render.
-      selectingLocationRef.current = false
       pauseScenarioAndRobot()
     }
 
