@@ -1,50 +1,73 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router'
+import {
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+
+import {
+  Link,
+  useLocation,
+} from 'react-router'
+
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+
 import {
-  replanningEndpoints,
-} from '../utils/replanning-endpoints'
+  useReplanning,
+} from '../hooks/useReplanning'
+
+import {
+  requestInitialRoute,
+  simulationErrorMessage as getErrorMessage,
+} from '../features/simulation/routing-api.ts'
+
+import type {
+  GeographicPoint as Point,
+  RouteResponse,
+} from '../../../shared/contracts/routing'
 
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
-import { drawPedestrianNetwork, fetchPedestrianNetwork } from '../utils/pedestrian-network'
-import type { PedestrianNetwork } from '../utils/pedestrian-network'
+
+import {
+  drawPedestrianNetwork,
+  fetchPedestrianNetwork,
+} from '../utils/pedestrian-network'
+
+import type {
+  PedestrianNetwork,
+} from '../utils/pedestrian-network'
 
 import SimulationIncidentSection from '../components/SimulationIncidentSection'
+
 import type {
   BlockedArea,
   Incident,
 } from '../components/SimulationIncidentSection'
-import { getIncidentAppearance } from '../utils/incident-icons'
+
+import {
+  getIncidentAppearance,
+} from '../utils/incident-icons'
 
 import {
   calculateRouteEstimates,
   isRobotOperatingProfile,
 } from '../utils/route-estimates'
-import type { RobotOperatingProfile } from '../utils/route-estimates'
 
-import { useRobotSimulation } from '../hooks/useRobotSimulation'
-import { useScenarioClock } from '../hooks/useScenarioClock'
+import type {
+  RobotOperatingProfile,
+} from '../utils/route-estimates'
+
+import {
+  useRobotSimulation,
+} from '../hooks/useRobotSimulation'
+
+import {
+  useScenarioClock,
+} from '../hooks/useScenarioClock'
 
 import './DemoPage.css'
 import './SimulationPage.css'
-
-type Point = {
-  lat: number
-  lng: number
-}
-
-type RouteResponse = {
-  geometry: {
-    type: 'LineString'
-    coordinates: [number, number][]
-  }
-  distanceMeters: number
-  durationSeconds: number
-  profile: string
-  networkVersion?: string
-}
 
 type DeliveryDraft = {
   networkVersion?: string
@@ -56,53 +79,28 @@ type DeliveryDraft = {
   destination: Point
 }
 
-type ToolExecution = {
-  name: string
-  success: boolean
-}
-
-type ReplanningResult = {
-  explanation: string
-  incidentIds: string[]
-  toolCalls: ToolExecution[]
-} & (
-    | {
-      status: 'alternative_ready'
-      route: RouteResponse
-    }
-    | {
-      status: 'not_replanned'
-      route: null
-    }
-  )
-
-type ReplanningStatus =
-  | 'idle'
-  | 'loading'
-  | 'ready'
-  | 'unavailable'
-  | 'error'
-
 function isPoint(value: unknown): value is Point {
   if (!value || typeof value !== 'object') return false
 
   const point = value as Record<string, unknown>
 
   return (
-    typeof point.lat === 'number' &&
-    Number.isFinite(point.lat) &&
-    point.lat >= -90 &&
-    point.lat <= 90 &&
-    typeof point.lng === 'number' &&
-    Number.isFinite(point.lng) &&
-    point.lng >= -180 &&
-    point.lng <= 180
+    typeof point.lat === 'number'
+    && Number.isFinite(point.lat)
+    && point.lat >= -90
+    && point.lat <= 90
+    && typeof point.lng === 'number'
+    && Number.isFinite(point.lng)
+    && point.lng >= -180
+    && point.lng <= 180
   )
 }
 
 // El estado de navegación puede faltar al abrir la URL directamente.
 // Validarlo evita iniciar una entrega con datos incompletos.
-function isDeliveryDraft(value: unknown): value is DeliveryDraft {
+function isDeliveryDraft(
+  value: unknown,
+): value is DeliveryDraft {
   if (!value || typeof value !== 'object') return false
 
   const draft = value as Record<string, unknown>
@@ -114,127 +112,18 @@ function isDeliveryDraft(value: unknown): value is DeliveryDraft {
   const robot = draft.robot as Record<string, unknown>
 
   return (
-    typeof robot.id === 'string' &&
-    robot.id.trim().length > 0 &&
-    typeof robot.name === 'string' &&
-    robot.name.trim().length > 0 &&
-    isRobotOperatingProfile(robot) &&
-    (draft.networkVersion === undefined || typeof draft.networkVersion === 'string') &&
-    isPoint(draft.origin) &&
-    isPoint(draft.destination)
-  )
-}
-
-function isRouteResponse(value: unknown): value is RouteResponse {
-  if (!value || typeof value !== 'object') return false
-
-  const route = value as Record<string, unknown>
-
-  if (!route.geometry || typeof route.geometry !== 'object') {
-    return false
-  }
-
-  const geometry = route.geometry as Record<string, unknown>
-
-  return (
-    geometry.type === 'LineString' &&
-    Array.isArray(geometry.coordinates) &&
-    geometry.coordinates.length >= 2 &&
-    geometry.coordinates.every(
-      (point: unknown) =>
-        Array.isArray(point) &&
-        point.length === 2 &&
-        typeof point[0] === 'number' &&
-        Number.isFinite(point[0]) &&
-        point[0] >= -180 &&
-        point[0] <= 180 &&
-        typeof point[1] === 'number' &&
-        Number.isFinite(point[1]) &&
-        point[1] >= -90 &&
-        point[1] <= 90,
-    ) &&
-    typeof route.distanceMeters === 'number' &&
-    Number.isFinite(route.distanceMeters) &&
-    route.distanceMeters >= 0 &&
-    typeof route.durationSeconds === 'number' &&
-    Number.isFinite(route.durationSeconds) &&
-    route.durationSeconds >= 0 &&
-    (route.networkVersion === undefined || typeof route.networkVersion === 'string') &&
-    typeof route.profile === 'string'
-  )
-}
-
-function isToolExecution(value: unknown): value is ToolExecution {
-  if (!value || typeof value !== 'object') return false
-
-  const tool = value as Record<string, unknown>
-
-  return (
-    typeof tool.name === 'string' &&
-    typeof tool.success === 'boolean'
-  )
-}
-
-function isReplanningResult(value: unknown): value is ReplanningResult {
-  if (!value || typeof value !== 'object') return false
-
-  const result = value as Record<string, unknown>
-
-  return (
-    typeof result.explanation === 'string' &&
-    result.explanation.trim().length > 0 &&
-    Array.isArray(result.incidentIds) &&
-    result.incidentIds.every(
-      (id: unknown) => typeof id === 'string',
-    ) &&
-    Array.isArray(result.toolCalls) &&
-    result.toolCalls.every(isToolExecution) &&
-    (
-      (
-        result.status === 'alternative_ready' &&
-        isRouteResponse(result.route)
-      ) ||
-      (
-        result.status === 'not_replanned' &&
-        result.route === null
-      )
+    typeof robot.id === 'string'
+    && robot.id.trim().length > 0
+    && typeof robot.name === 'string'
+    && robot.name.trim().length > 0
+    && isRobotOperatingProfile(robot)
+    && (
+      draft.networkVersion === undefined
+      || typeof draft.networkVersion === 'string'
     )
+    && isPoint(draft.origin)
+    && isPoint(draft.destination)
   )
-}
-
-async function readResponse(response: Response): Promise<unknown> {
-  const body: unknown = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const message =
-      body &&
-        typeof body === 'object' &&
-        'message' in body &&
-        typeof body.message === 'string'
-        ? body.message
-        : 'No se pudo completar la operación.'
-
-    throw new Error(message)
-  }
-
-  return body
-}
-
-function getErrorMessage(error: unknown): string {
-  if (
-    error instanceof Error &&
-    error.name === 'TimeoutError'
-  ) {
-    return 'La operación tardó demasiado. No se aplicaron cambios en esta pantalla.'
-  }
-
-  if (error instanceof TypeError) {
-    return 'No se pudo conectar con el backend.'
-  }
-
-  return error instanceof Error
-    ? error.message
-    : 'Ocurrió un error inesperado.'
 }
 
 function formatNumber(value: number): string {
@@ -243,6 +132,8 @@ function formatNumber(value: number): string {
   })
 }
 
+// La pantalla coordina el mapa, los controles y las métricas.
+// La solicitud de desvíos y sus estados pertenecen a useReplanning.
 function SimulationContent({
   navigationState,
 }: {
@@ -250,25 +141,25 @@ function SimulationContent({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
+
   const savedMapViewRef = useRef<{
     route: RouteResponse
     center: L.LatLng
     zoom: number
   } | null>(null)
-  const [incidentMap, setIncidentMap] = useState<L.Map | null>(null)
-  const [incidentDraftOpen, setIncidentDraftOpen] = useState(false)
-  // Leaflet conserva su listener entre renders; la referencia permite que
-  // lea el modo de selección actual sin reconstruir el mapa en cada clic.
+
+  const [incidentMap, setIncidentMap] =
+    useState<L.Map | null>(null)
+
+  const [incidentDraftOpen, setIncidentDraftOpen] =
+    useState(false)
+
+  // Las referencias permiten conservar objetos de Leaflet entre renders.
   const selectingLocationRef = useRef(false)
   const blockedLayerRef = useRef<L.LayerGroup | null>(null)
   const robotMarkerRef = useRef<L.Marker | null>(null)
   const remainingRouteRef = useRef<L.Polyline | null>(null)
   const originMarkerRef = useRef<L.CircleMarker | null>(null)
-
-  const replanningControllerRef =
-    useRef<AbortController | null>(null)
-
-  const replanningPendingRef = useRef(false)
 
   const draft = isDeliveryDraft(navigationState)
     ? navigationState
@@ -281,9 +172,6 @@ function SimulationContent({
   const [route, setRoute] =
     useState<RouteResponse | null>(null)
 
-  const [alternative, setAlternative] =
-    useState<RouteResponse | null>(null)
-
   const [blockedAreas, setBlockedAreas] =
     useState<BlockedArea[]>([])
 
@@ -294,40 +182,70 @@ function SimulationContent({
   const [retryKey, setRetryKey] = useState(0)
   const [incidentSaving, setIncidentSaving] = useState(false)
   const [selectingLocation, setSelectingLocation] = useState(false)
-  const [network, setNetwork] = useState<PedestrianNetwork | null>(null)
+
+  const [network, setNetwork] =
+    useState<PedestrianNetwork | null>(null)
 
   useEffect(() => {
     if (!draft?.networkVersion) return
+
     const controller = new AbortController()
-    void fetchPedestrianNetwork(AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]))
+
+    void fetchPedestrianNetwork(
+      AbortSignal.any([
+        controller.signal,
+        AbortSignal.timeout(15000),
+      ]),
+    )
       .then((value) => {
-        if (!controller.signal.aborted && value.version === draft.networkVersion) setNetwork(value)
+        if (
+          !controller.signal.aborted
+          && value.version === draft.networkVersion
+        ) {
+          setNetwork(value)
+        }
       })
-      .catch(() => { /* El formulario muestra el estado de red no disponible. */ })
+      .catch(() => {
+        // El formulario muestra el estado de red no disponible.
+      })
+
     return () => controller.abort()
   }, [draft?.networkVersion])
 
-  const [replanningStatus, setReplanningStatus] =
-    useState<ReplanningStatus>('idle')
-
-  const [replanningError, setReplanningError] = useState('')
-  const [explanation, setExplanation] = useState('')
-
-  const [toolCalls, setToolCalls] =
-    useState<ToolExecution[]>([])
-
-  const [comparisonDistance, setComparisonDistance] =
-    useState<number | null>(null)
-
-  // El escenario puede avanzar sin un encargo en marcha. El tiempo del
-  // robot, en cambio, mide únicamente el desplazamiento de esta entrega.
+  // El escenario puede avanzar con el robot detenido.
+  // El tiempo del robot mide únicamente el desplazamiento.
   const clock = useScenarioClock()
 
   const motion = useRobotSimulation(
     draft?.robot.speedKmh ?? 0,
   )
 
-  const { loadRoute, getSnapshot } = motion
+  const {
+    loadRoute,
+    getSnapshot,
+  } = motion
+
+  // El controlador reúne la petición, los estados y la aplicación del desvío.
+  const replanning = useReplanning({
+    simulationId,
+    route,
+    pauseRobot: motion.pause,
+    pauseScenario: clock.pause,
+    getScenarioTime: clock.getScenarioTime,
+    getMotionSnapshot: getSnapshot,
+    loadRoute,
+  })
+
+  const {
+    alternative,
+    status: replanningStatus,
+    error: replanningError,
+    explanation,
+    toolCalls,
+    comparisonDistance,
+    request: requestReplanning,
+    isPending: isReplanningPending,
+  } = replanning
 
   const hasBlockages = blockedAreas.length > 0
   const displayedRoute = alternative ?? route
@@ -335,48 +253,53 @@ function SimulationContent({
   const estimates =
     draft && displayedRoute
       ? calculateRouteEstimates(
-        displayedRoute.distanceMeters,
-        draft.robot,
-      )
+          displayedRoute.distanceMeters,
+          draft.robot,
+        )
       : null
 
   const traveledEstimates = draft
     ? calculateRouteEstimates(
-      motion.traveledMeters,
-      draft.robot,
-    )
+        motion.traveledMeters,
+        draft.robot,
+      )
     : null
 
   const evaluationBusy =
-    incidentSaving ||
-    replanningStatus === 'loading'
+    incidentSaving
+    || replanningStatus === 'loading'
 
-  // Elegir una ubicación mantiene estable la posición y la hora que
-  // se usarán al registrar el incidente y evaluar un posible desvío.
-  const controlsLocked = evaluationBusy || selectingLocation || incidentDraftOpen
+  // Editar un incidente mantiene estable la posición y la hora.
+  const controlsLocked =
+    evaluationBusy
+    || selectingLocation
+    || incidentDraftOpen
 
   const movementBlocked =
-    controlsLocked ||
-    (hasBlockages && replanningStatus !== 'ready')
+    controlsLocked
+    || (
+      hasBlockages
+      && replanningStatus !== 'ready'
+    )
 
   const waitingDisabled =
-    controlsLocked ||
-    motion.status === 'running'
+    controlsLocked
+    || motion.status === 'running'
 
   useEffect(() => {
-    selectingLocationRef.current = selectingLocation && !evaluationBusy
+    selectingLocationRef.current =
+      selectingLocation && !evaluationBusy
   }, [selectingLocation, evaluationBusy])
 
-  useEffect(() => {
-    return () => {
-      replanningControllerRef.current?.abort()
-    }
-  }, [])
-
+  // La ruta inicial tiene su propio ciclo de carga y cancelación.
   useEffect(() => {
     if (!draft) return
 
-    const { origin, destination } = draft
+    const {
+      origin,
+      destination,
+    } = draft
+
     const controller = new AbortController()
 
     async function fetchInitialRoute() {
@@ -384,29 +307,14 @@ function SimulationContent({
       setError('')
 
       try {
-        const response = await fetch('/api/routes', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
+        const body = await requestInitialRoute(
+          {
             origin,
             destination,
-            ...(draft?.networkVersion ? { networkVersion: draft.networkVersion } : {}),
-          }),
-          signal: AbortSignal.any([
-            controller.signal,
-            AbortSignal.timeout(25000),
-          ]),
-        })
-
-        const body = await readResponse(response)
-
-        if (!isRouteResponse(body) || body.networkVersion !== draft?.networkVersion) {
-          throw new Error(
-            'El servidor devolvió una ruta inválida.',
-          )
-        }
+            networkVersion: draft?.networkVersion,
+          },
+          controller.signal,
+        )
 
         if (!controller.signal.aborted) {
           loadRoute(body)
@@ -424,6 +332,8 @@ function SimulationContent({
     return () => controller.abort()
   }, [draft, retryKey, loadRoute])
 
+  // Ciclo de vida de Leaflet. Al reemplazar el recorrido conservamos
+  // el encuadre para que la replanificación no aleje el mapa.
   useEffect(() => {
     if (!containerRef.current || !route) return
 
@@ -439,10 +349,12 @@ function SimulationContent({
 
     if (!origin || !destination) return
 
-    const map = L.map(containerRef.current, { maxZoom: 22 }).setView(
-      origin,
-      15,
-    )
+    const map = L.map(
+      containerRef.current,
+      {
+        maxZoom: 22,
+      },
+    ).setView(origin, 15)
 
     mapRef.current = map
     setIncidentMap(map)
@@ -457,24 +369,29 @@ function SimulationContent({
       },
     ).addTo(map)
 
-    remainingRouteRef.current = L.polyline([], {
-      color: '#0f766e',
-      weight: 6,
-      opacity: 0.95,
+    remainingRouteRef.current = L.polyline(
+      [],
+      {
+        color: '#0f766e',
+        weight: 6,
+        opacity: 0.95,
 
-      // El clic atraviesa el recorrido y llega a la vereda.
-      interactive: false,
-    })
-      .addTo(map)
+        // El clic atraviesa el recorrido y llega al editor.
+        interactive: false,
+      },
+    ).addTo(map)
 
     if (!alternative) {
-      originMarkerRef.current = L.circleMarker(origin, {
-        radius: 8,
-        color: '#fff',
-        weight: 3,
-        fillColor: '#15803d',
-        fillOpacity: 1,
-      })
+      originMarkerRef.current = L.circleMarker(
+        origin,
+        {
+          radius: 8,
+          color: '#fff',
+          weight: 3,
+          fillColor: '#15803d',
+          fillOpacity: 1,
+        },
+      )
         .bindTooltip('Origen', {
           permanent: true,
           direction: 'top',
@@ -504,16 +421,23 @@ function SimulationContent({
 
     const currentPosition = getSnapshot().position
 
-    const markerPosition: L.LatLngTuple = currentPosition
-      ? [currentPosition[1], currentPosition[0]]
-      : origin
+    const markerPosition: L.LatLngTuple =
+      currentPosition
+        ? [
+            currentPosition[1],
+            currentPosition[0],
+          ]
+        : origin
 
-    robotMarkerRef.current = L.marker(markerPosition, {
-      icon: robotIcon,
-      alt: 'Robot simulado',
-      title: 'Robot simulado',
-      zIndexOffset: 1000,
-    })
+    robotMarkerRef.current = L.marker(
+      markerPosition,
+      {
+        icon: robotIcon,
+        alt: 'Robot simulado',
+        title: 'Robot simulado',
+        zIndexOffset: 1000,
+      },
+    )
       .bindTooltip('Robot simulado')
       .addTo(map)
 
@@ -528,10 +452,13 @@ function SimulationContent({
         savedView.zoom,
       )
     } else {
-      map.fitBounds(L.latLngBounds(positions), {
-        padding: [40, 40],
-        maxZoom: 17,
-      })
+      map.fitBounds(
+        L.latLngBounds(positions),
+        {
+          padding: [40, 40],
+          maxZoom: 17,
+        },
+      )
     }
 
     return () => {
@@ -555,8 +482,7 @@ function SimulationContent({
   useEffect(() => {
     if (!incidentMap || !network) return
 
-    // Los caminos permanecen visibles independientemente
-    // de si estamos editando un incidente.
+    // Los caminos permanecen visibles aunque no estemos editando.
     const layer = drawPedestrianNetwork(
       incidentMap,
       network,
@@ -568,30 +494,33 @@ function SimulationContent({
   }, [incidentMap, network])
 
   useEffect(() => {
-    // Actualizamos las capas existentes para no perder el zoom ni el
-    // desplazamiento del mapa en cada fotograma de la animación.
+    // Se actualizan las capas existentes en cada paso de la animación.
+    // Reconstruir el mapa por fotograma haría perder el encuadre.
     if (motion.position) {
       const [lng, lat] = motion.position
 
-      robotMarkerRef.current?.setLatLng([lat, lng])
+      robotMarkerRef.current?.setLatLng([
+        lat,
+        lng,
+      ])
     }
 
-    // Al llegar se vacía la línea: el muestreo final puede conservar
-    // coordenadas repetidas del destino, aunque ya no quede recorrido.
+    // Al llegar se vacía la línea, aunque el muestreo conserve
+    // coordenadas repetidas del destino.
     const remainingPositions: L.LatLngTuple[] =
       motion.status === 'completed'
         ? []
         : motion.remainingCoordinates.map(
-          ([lng, lat]) => [lat, lng],
-        )
+            ([lng, lat]) => [lat, lng],
+          )
 
     remainingRouteRef.current?.setLatLngs(
       remainingPositions,
     )
 
     if (
-      motion.traveledMeters > 0 ||
-      motion.status === 'completed'
+      motion.traveledMeters > 0
+      || motion.status === 'completed'
     ) {
       originMarkerRef.current?.remove()
       originMarkerRef.current = null
@@ -607,27 +536,63 @@ function SimulationContent({
 
   useEffect(() => {
     const layer = blockedLayerRef.current
+
     if (!layer) return
 
     layer.clearLayers()
 
-    // La representación incluye precauciones e información, mientras
-    // que blockedAreas sigue reservada para los desvíos por bloqueos.
+    // El mapa incluye información y precauciones.
+    // Solo los bloqueos generan restricciones sobre el recorrido.
     activeIncidents.forEach((incident) => {
-      const appearance = getIncidentAppearance(incident.type)
-      incident.pedestrianImpact?.segments.forEach((segment) => {
-        L.polyline(segment.coordinates.map(([lng, lat]): L.LatLngTuple => [lat, lng]), {
-          color: incident.effect === 'blockage' ? '#dc2626' : incident.effect === 'caution' ? '#d97706' : '#2563eb',
-          weight: 9, opacity: 0.8, interactive: false,
-        }).addTo(layer)
-      })
+      const appearance = getIncidentAppearance(
+        incident.type,
+      )
+
+      incident.pedestrianImpact?.segments.forEach(
+        (segment) => {
+          L.polyline(
+            segment.coordinates.map(
+              ([lng, lat]): L.LatLngTuple => [
+                lat,
+                lng,
+              ],
+            ),
+            {
+              color:
+                incident.effect === 'blockage'
+                  ? '#dc2626'
+                  : incident.effect === 'caution'
+                    ? '#d97706'
+                    : '#2563eb',
+              weight: 9,
+              opacity: 0.8,
+              interactive: false,
+            },
+          ).addTo(layer)
+        },
+      )
+
       if (incident.surfaceImpact) {
-        L.geoJSON(incident.surfaceImpact.geometry, {
-          style: { color: incident.effect === 'blockage' ? '#dc2626' : incident.effect === 'caution' ? '#d97706' : '#2563eb', weight: 2, fillOpacity: 0.3 },
-          interactive: false,
-        }).addTo(layer)
+        L.geoJSON(
+          incident.surfaceImpact.geometry,
+          {
+            style: {
+              color:
+                incident.effect === 'blockage'
+                  ? '#dc2626'
+                  : incident.effect === 'caution'
+                    ? '#d97706'
+                    : '#2563eb',
+              weight: 2,
+              fillOpacity: 0.3,
+            },
+            interactive: false,
+          },
+        ).addTo(layer)
       }
+
       const area = incident.blockedArea
+
       const center: L.LatLngTuple = [
         (area.south + area.north) / 2,
         (area.west + area.east) / 2,
@@ -641,15 +606,17 @@ function SimulationContent({
         className: 'simulation-blockage-icon',
       })
 
-      const effectLabel = incident.effect === 'blockage'
-        ? 'Paso bloqueado'
-        : incident.effect === 'caution'
-          ? 'Circular con precaución'
-          : 'Información del recorrido'
+      const effectLabel =
+        incident.effect === 'blockage'
+          ? 'Paso bloqueado'
+          : incident.effect === 'caution'
+            ? 'Circular con precaución'
+            : 'Información del recorrido'
 
-      // Leaflet interpreta las cadenas como HTML. Usar textContent
-      // permite mostrar descripciones del usuario como texto literal.
+      // Leaflet interpreta cadenas como HTML.
+      // textContent muestra las descripciones como texto literal.
       const tooltip = document.createElement('div')
+
       const heading = document.createElement('strong')
       heading.textContent = appearance.label
 
@@ -667,7 +634,13 @@ function SimulationContent({
       expiration.textContent =
         `Vigente hasta: ${new Date(incident.expiresAt).toLocaleString('es-AR')}`
 
-      tooltip.append(heading, effect, description, reporter, expiration)
+      tooltip.append(
+        heading,
+        effect,
+        description,
+        reporter,
+        expiration,
+      )
 
       L.marker(center, {
         icon,
@@ -676,7 +649,9 @@ function SimulationContent({
         keyboard: true,
         riseOnHover: true,
       })
-        .bindTooltip(tooltip, { direction: 'top' })
+        .bindTooltip(tooltip, {
+          direction: 'top',
+        })
         .addTo(layer)
     })
   }, [route, alternative, activeIncidents])
@@ -687,18 +662,29 @@ function SimulationContent({
   }
 
   function selectIncidentLocation() {
-    if (evaluationBusy || replanningPendingRef.current) return
+    if (
+      evaluationBusy
+      || isReplanningPending()
+    ) {
+      return
+    }
 
     pauseScenarioAndRobot()
     selectingLocationRef.current = true
     setSelectingLocation(true)
-    mapRef.current?.getContainer().scrollIntoView({ block: 'center' })
+
+    mapRef.current
+      ?.getContainer()
+      .scrollIntoView({
+        block: 'center',
+      })
   }
 
   function cancelIncidentSelection() {
     selectingLocationRef.current = false
     setSelectingLocation(false)
-    // No reanudamos automáticamente: el usuario decide cuándo continuar.
+
+    // El usuario decide cuándo reanudar el recorrido.
   }
 
   function changeSimulationSpeed(value: number) {
@@ -708,8 +694,8 @@ function SimulationContent({
 
   function toggleScenarioClock() {
     if (
-      controlsLocked ||
-      replanningPendingRef.current
+      controlsLocked
+      || isReplanningPending()
     ) {
       return
     }
@@ -717,15 +703,15 @@ function SimulationContent({
     if (clock.running) {
       pauseScenarioAndRobot()
     } else {
-      // Permite avanzar el escenario sin mover el robot.
+      // El escenario puede avanzar sin mover al robot.
       clock.start()
     }
   }
 
   function waitInScenario(seconds: number) {
     if (
-      waitingDisabled ||
-      replanningPendingRef.current
+      waitingDisabled
+      || isReplanningPending()
     ) {
       return
     }
@@ -736,11 +722,11 @@ function SimulationContent({
 
   function advanceRobotByTwoMinutes() {
     if (
-      movementBlocked ||
-      replanningPendingRef.current ||
-      motion.status === 'running' ||
-      motion.status === 'completed' ||
-      motion.status === 'empty'
+      movementBlocked
+      || isReplanningPending()
+      || motion.status === 'running'
+      || motion.status === 'completed'
+      || motion.status === 'empty'
     ) {
       return
     }
@@ -753,126 +739,6 @@ function SimulationContent({
     clock.advanceBy(120)
   }
 
-  async function requestReplanning() {
-    if (
-      !draft
-      || !route
-      || replanningPendingRef.current
-    ) {
-      return
-    }
-
-    pauseScenarioAndRobot()
-
-    const scenarioTime = clock.getScenarioTime()
-    const current = motion.getSnapshot()
-
-    setComparisonDistance(current.remainingMeters)
-
-    const controller = new AbortController()
-
-    replanningControllerRef.current = controller
-    replanningPendingRef.current = true
-
-    // Evita mostrar métricas de una alternativa anterior
-    // cuando la nueva evaluación no produce un recorrido.
-    setAlternative(null)
-    setReplanningStatus('loading')
-    setReplanningError('')
-    setExplanation('')
-    setToolCalls([])
-
-    try {
-      const {
-        origin,
-        destination,
-      } = replanningEndpoints(
-        route.geometry.coordinates,
-        current.position,
-      )
-
-      const response = await fetch('/api/replanning', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          simulationId,
-
-          ...(route.networkVersion
-            ? {
-              networkVersion: route.networkVersion,
-            }
-            : {}),
-
-                    origin,
-          destination,
-          scenarioTime,
-
-          ...(current.remainingCoordinates.length >= 2
-            ? {
-                preferredCoordinates:
-                  current.remainingCoordinates,
-              }
-            : {}),
-        }),
-        signal: AbortSignal.any([
-          controller.signal,
-          AbortSignal.timeout(120000),
-        ]),
-      })
-
-      const body = await readResponse(response)
-
-      if (!isReplanningResult(body)) {
-        throw new Error(
-          'El servidor devolvió una evaluación con datos inválidos.',
-        )
-      }
-
-      if (controller.signal.aborted) return
-
-      setExplanation(body.explanation)
-      setToolCalls(body.toolCalls)
-
-      if (body.status === 'alternative_ready') {
-        if (
-          body.route.networkVersion
-          !== route.networkVersion
-        ) {
-          throw new Error(
-            'El desvío pertenece a otra red peatonal. No se aplicó.',
-          )
-        }
-
-        // Conserva la distancia y el tiempo acumulados.
-        // El nuevo recorrido comienza en la posición actual.
-        loadRoute(body.route, true)
-
-        setAlternative(body.route)
-        setReplanningStatus('ready')
-      } else {
-        setReplanningStatus('unavailable')
-      }
-    } catch (caught) {
-      if (!controller.signal.aborted) {
-        setReplanningError(
-          getErrorMessage(caught),
-        )
-
-        setReplanningStatus('error')
-      }
-    } finally {
-      if (
-        replanningControllerRef.current
-        === controller
-      ) {
-        replanningPendingRef.current = false
-        replanningControllerRef.current = null
-      }
-    }
-  }
-
   function handleBlockedAreasChange(
     areas: BlockedArea[],
     options: {
@@ -882,28 +748,24 @@ function SimulationContent({
     setBlockedAreas(areas)
 
     if (
-      options.requestReplanning &&
-      areas.length > 0
+      options.requestReplanning
+      && areas.length > 0
     ) {
       pauseScenarioAndRobot()
       void requestReplanning()
       return
     }
 
-    // Si ningún bloqueo cruza el tramo pendiente, permite continuar
-    // aunque la evaluación anterior haya fallado. Los incidentes pueden
-    // seguir activos en el mapa, fuera del recorrido actual.
+    // Si ya no hay bloqueos sobre el tramo pendiente,
+    // se permite continuar aunque la evaluación anterior haya fallado.
     if (areas.length === 0) {
-      setReplanningError('')
-      setReplanningStatus(
-        alternative ? 'ready' : 'idle',
-      )
+      replanning.clearError()
     }
   }
+
   function handleCreatingChange(creating: boolean) {
     if (creating) {
-      // El clic que guarda no debe permitir mover el borrador mientras
-      // la petición está en curso, ni siquiera antes del próximo render.
+      // Bloquea el borrador inmediatamente, antes del próximo render.
       selectingLocationRef.current = false
       pauseScenarioAndRobot()
     }
@@ -918,10 +780,10 @@ function SimulationContent({
 
   function toggleMovement() {
     if (
-      movementBlocked ||
-      replanningPendingRef.current ||
-      motion.status === 'completed' ||
-      motion.status === 'empty'
+      movementBlocked
+      || isReplanningPending()
+      || motion.status === 'completed'
+      || motion.status === 'empty'
     ) {
       return
     }
@@ -981,6 +843,7 @@ function SimulationContent({
               src={robotLogo}
               alt=""
             />
+
             <img
               className="demo-brand-name"
               src={brandName}
@@ -1009,10 +872,12 @@ function SimulationContent({
         {!draft ? (
           <section className="simulation-empty">
             <h1>Primero prepará una entrega</h1>
+
             <p>
               Seleccioná un robot, el origen y el destino
               para continuar a la simulación.
             </p>
+
             <Link to="/demo">
               Ir a preparar entrega →
             </Link>
@@ -1172,9 +1037,9 @@ function SimulationContent({
                   type="button"
                   onClick={toggleMovement}
                   disabled={
-                    movementBlocked ||
-                    motion.status === 'completed' ||
-                    motion.status === 'empty'
+                    movementBlocked
+                    || motion.status === 'completed'
+                    || motion.status === 'empty'
                   }
                 >
                   {motion.status === 'completed'
@@ -1209,10 +1074,10 @@ function SimulationContent({
                   type="button"
                   onClick={advanceRobotByTwoMinutes}
                   disabled={
-                    movementBlocked ||
-                    motion.status === 'running' ||
-                    motion.status === 'completed' ||
-                    motion.status === 'empty'
+                    movementBlocked
+                    || motion.status === 'running'
+                    || motion.status === 'completed'
+                    || motion.status === 'empty'
                   }
                 >
                   Recorrer 2 minutos
@@ -1222,10 +1087,13 @@ function SimulationContent({
 
             <p className="simulation-progress">
               Recorrido:{' '}
+
               <strong>
                 {formatNumber(motion.traveledMeters)} m
               </strong>
+
               {' · '}Pendiente:{' '}
+
               <strong>
                 {formatNumber(motion.remainingMeters)} m
               </strong>
@@ -1233,6 +1101,7 @@ function SimulationContent({
               {traveledEstimates && (
                 <>
                   {' · '}Consumo acumulado estimado:{' '}
+
                   <strong>
                     {formatNumber(
                       traveledEstimates.consumptionWh,
@@ -1242,17 +1111,22 @@ function SimulationContent({
                 </>
               )}
 
-              {motion.status === 'completed' &&
-                ' · Destino alcanzado'}
+              {motion.status === 'completed'
+                && ' · Destino alcanzado'}
             </p>
 
-            {route.networkVersion && <p className="simulation-notice">
-              Sandbox peatonal: los recorridos usan la red fija de veredas y cruces de OpenStreetMap.
+            {route.networkVersion && (
+              <p className="simulation-notice">
+                Sandbox peatonal: los recorridos usan la red fija
+                de veredas y cruces de OpenStreetMap.
+                Las líneas peatonales se muestran al acercar el mapa.
+                Las superficies y los controles aparecen al ubicar
+                un incidente. Los reportes se colorean según su efecto.
+                La cartografía no certifica la accesibilidad física
+                del robot.
+              </p>
+            )}
 
-              La conectividad corresponde al mapa;Las líneas peatonales se muestran al acercar el mapa.
-              Las superficies y los controles aparecen al ubicar
-              un incidente. Los reportes se colorean según su efecto. no certifica la accesibilidad física del robot.
-            </p>}
             <p className="simulation-notice">
               El reloj del escenario puede avanzar con el
               robot detenido o después de llegar al destino.
@@ -1289,9 +1163,9 @@ function SimulationContent({
                   className="simulation-legend"
                   aria-label="Referencias del mapa"
                 >
-                  {!alternative &&
-                    motion.traveledMeters === 0 &&
-                    motion.status !== 'completed' && (
+                  {!alternative
+                    && motion.traveledMeters === 0
+                    && motion.status !== 'completed' && (
                       <span>
                         <i
                           className="legend-origin"
@@ -1324,27 +1198,34 @@ function SimulationContent({
                         className="legend-route"
                         aria-hidden="true"
                       />
+
                       {alternative
                         ? 'Desvío pendiente'
                         : 'Recorrido pendiente'}
                     </span>
                   )}
 
-                  {[...new Set(activeIncidents.map((incident) => incident.type))]
-                    .map((type) => {
-                      const appearance = getIncidentAppearance(type)
+                  {[
+                    ...new Set(
+                      activeIncidents.map(
+                        (incident) => incident.type,
+                      ),
+                    ),
+                  ].map((type) => {
+                    const appearance =
+                      getIncidentAppearance(type)
 
-                      return (
-                        <span key={type}>
-                          <img
-                            className="legend-blockage-image"
-                            src={appearance.iconUrl}
-                            alt=""
-                          />
-                          {appearance.label}
-                        </span>
-                      )
-                    })}
+                    return (
+                      <span key={type}>
+                        <img
+                          className="legend-blockage-image"
+                          src={appearance.iconUrl}
+                          alt=""
+                        />
+                        {appearance.label}
+                      </span>
+                    )
+                  })}
                 </div>
 
                 <dl className="simulation-metrics">
@@ -1373,8 +1254,8 @@ function SimulationContent({
                     <dd>
                       {estimates
                         ? `${formatNumber(
-                          estimates.durationSeconds / 60,
-                        )} min`
+                            estimates.durationSeconds / 60,
+                          )} min`
                         : '—'}
                     </dd>
                   </div>
@@ -1389,8 +1270,8 @@ function SimulationContent({
                     <dd>
                       {estimates
                         ? `${formatNumber(
-                          estimates.consumptionWh,
-                        )} Wh`
+                            estimates.consumptionWh,
+                          )} Wh`
                         : '—'}
                     </dd>
                   </div>
@@ -1403,8 +1284,8 @@ function SimulationContent({
                     <dd>
                       {estimates
                         ? `${formatNumber(
-                          estimates.requiredCapacityPercent,
-                        )} %`
+                            estimates.requiredCapacityPercent,
+                          )} %`
                         : '—'}
                     </dd>
                   </div>
@@ -1414,15 +1295,17 @@ function SimulationContent({
                   Estimaciones a velocidad constante y
                   consumo de referencia, sin pendientes,
                   clima ni consumo durante las esperas.
+
                   {alternative
                     ? ' Las métricas corresponden al desvío desde el punto donde se pausó el robot.'
                     : ' Las métricas corresponden al recorrido original completo.'}
+
                   {' '}El porcentaje expresa capacidad
                   requerida, no batería restante.
                 </p>
 
-                {estimates &&
-                  estimates.requiredCapacityPercent > 100 && (
+                {estimates
+                  && estimates.requiredCapacityPercent > 100 && (
                     <p
                       className="simulation-capacity-warning"
                       role="status"
@@ -1478,8 +1361,8 @@ function SimulationContent({
                     </>
                   )}
 
-                  {replanningStatus === 'ready' &&
-                    motion.status === 'paused' && (
+                  {replanningStatus === 'ready'
+                    && motion.status === 'paused' && (
                       <p className="simulation-route-comparison">
                         El desvío está cargado. Pulsá
                         Reanudar recorrido para continuar;
@@ -1501,6 +1384,7 @@ function SimulationContent({
                     <p className="simulation-route-comparison">
                       Diferencia respecto del recorrido
                       pendiente:{' '}
+
                       <strong>
                         {distanceDifference > 0 ? '+' : ''}
                         {formatNumber(distanceDifference)} m
@@ -1509,20 +1393,20 @@ function SimulationContent({
                   )}
 
                   {(
-                    replanningStatus === 'error' ||
-                    replanningStatus === 'unavailable'
+                    replanningStatus === 'error'
+                    || replanningStatus === 'unavailable'
                   ) && (
-                      <button
-                        className="simulation-retry"
-                        type="button"
-                        onClick={() =>
-                          void requestReplanning()
-                        }
-                        disabled={incidentSaving}
-                      >
-                        Reintentar evaluación
-                      </button>
-                    )}
+                    <button
+                      className="simulation-retry"
+                      type="button"
+                      onClick={() =>
+                        void requestReplanning()
+                      }
+                      disabled={incidentSaving}
+                    >
+                      Reintentar evaluación
+                    </button>
+                  )}
 
                   <dl className="simulation-checks">
                     <div>
@@ -1532,6 +1416,7 @@ function SimulationContent({
 
                     <div>
                       <dt>Velocidad operativa</dt>
+
                       <dd>
                         {formatNumber(
                           draft.robot.speedKmh,
@@ -1544,17 +1429,19 @@ function SimulationContent({
                       <dt>
                         Consumo acumulado estimado
                       </dt>
+
                       <dd>
                         {traveledEstimates
                           ? `${formatNumber(
-                            traveledEstimates.consumptionWh,
-                          )} Wh`
+                              traveledEstimates.consumptionWh,
+                            )} Wh`
                           : 'No disponible'}
                       </dd>
                     </div>
 
                     <div>
                       <dt>Reloj del escenario</dt>
+
                       <dd>
                         {clock.running
                           ? 'Avanzando'
@@ -1574,6 +1461,7 @@ function SimulationContent({
 
                     <div>
                       <dt>Alternativa</dt>
+
                       <dd>
                         {alternative
                           ? 'Cargada en el escenario'

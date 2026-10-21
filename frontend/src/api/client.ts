@@ -1,24 +1,34 @@
-// Transporte HTTP común. Los consumidores validan luego la forma del JSON.
+// Transporte HTTP común.
+// Los consumidores validan luego la forma del JSON.
+
+export type RequestOptions = {
+  timeoutMs?: number
+}
 
 export async function fetchJson(
   url: string,
   init: RequestInit = {},
+  options: RequestOptions = {},
 ): Promise<unknown> {
-  // Conserva la cancelación del consumidor y agrega un máximo de 40 segundos.
+  // Combina la cancelación del consumidor con el tiempo máximo
+  // de esta operación. El valor habitual sigue siendo 40 segundos.
+  const timeoutMs = options.timeoutMs ?? 40000
+
   const response = await fetch(url, {
     ...init,
     signal: init.signal
       ? AbortSignal.any([
           init.signal,
-          AbortSignal.timeout(40000),
+          AbortSignal.timeout(timeoutMs),
         ])
-      : AbortSignal.timeout(40000),
+      : AbortSignal.timeout(timeoutMs),
   })
 
-  // Mantiene el comportamiento actual: una respuesta sin JSON produce null.
+  // Mantiene el comportamiento existente:
+  // una respuesta sin JSON produce null.
   const body: unknown = await response.json().catch(() => null)
 
-  // Ante un rechazo HTTP, prioriza el mensaje enviado por el backend.
+  // Ante un rechazo HTTP, prioriza el mensaje del backend.
   if (!response.ok) {
     const message =
       body
