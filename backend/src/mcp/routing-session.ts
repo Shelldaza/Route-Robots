@@ -1,3 +1,4 @@
+import { summarizeRoutingIncident } from '../services/routing-evaluation';
 import {
     Client,
     StreamableHTTPClientTransport,
@@ -45,6 +46,13 @@ export type RoutingServices = {
         scenarioTime?: string,
     ) => Promise<RoutingIncidentInput[]>;
 
+    // Debe consultar datos nuevos; nunca reutilizar el contexto inicial.
+    // Si no se implementa, el agente vuelve a llamar listActiveIncidents.
+    refreshActiveIncidents?: (
+        simulationId: string,
+        scenarioTime?: string,
+    ) => Promise<RoutingIncidentInput[]>;
+
     calculateRoute: (
         input: unknown,
     ) => Promise<CalculatedRoute>;
@@ -82,6 +90,19 @@ export async function createRoutingMcpSession(
             parsed.scenarioTime ?? new Date().toISOString(),
     };
 
+    // Ambas herramientas trabajan con la misma captura de incidentes.
+    // La promesa pertenece a esta sesión y no se comparte globalmente.
+    let incidentsPromise: Promise<ReturnType<typeof toRoutingIncidents>> | undefined;
+
+    function readIncidents() {
+        return incidentsPromise ??= services.listActiveIncidents(
+            context.simulationId,
+            context.scenarioTime,
+        ).then((records) =>
+            toRoutingIncidents(records, context.networkVersion)
+        );
+    }
+
     let candidate: {
         route: CalculatedRoute;
         incidentIds: string[];
@@ -102,18 +123,12 @@ export async function createRoutingMcpSession(
             },
             async () => {
                 try {
-                    const incidents = toRoutingIncidents(
-                        await services.listActiveIncidents(
-                            context.simulationId,
-                            context.scenarioTime,
-                        ),
-                        context.networkVersion,
-                    );
+                    const incidents = await readIncidents();
 
                     return toolResult({
                         status: 'ok',
                         scenarioTime: context.scenarioTime,
-                        incidents,
+                        incidents: incidents.map(summarizeRoutingIncident),
                     });
                 } catch {
                     return toolResult(
@@ -139,13 +154,7 @@ export async function createRoutingMcpSession(
                 candidate = null;
 
                 try {
-                    const incidents = toRoutingIncidents(
-                        await services.listActiveIncidents(
-                            context.simulationId,
-                            context.scenarioTime,
-                        ),
-                        context.networkVersion,
-                    );
+                    const incidents = await readIncidents();
 
                     if (incidents.length === 0) {
                         return toolResult(

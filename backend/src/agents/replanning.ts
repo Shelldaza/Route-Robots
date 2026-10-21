@@ -1,3 +1,4 @@
+import { incidentFingerprint } from '../services/routing-evaluation';
 import Anthropic from '@anthropic-ai/sdk';
 
 import {
@@ -115,11 +116,17 @@ export async function replanRoute(
         );
     }
 
+    const initialRecords = await services.listActiveIncidents(
+        context.simulationId,
+        context.scenarioTime,
+    );
+
+    // Se calcula sobre los registros completos, antes de normalizarlos.
+    // Así también detectamos cambios en las geometrías de superficies.
+    const initialFingerprint = incidentFingerprint(initialRecords);
+
     const initialIncidents = readRestrictions(
-        await services.listActiveIncidents(
-            context.simulationId,
-            context.scenarioTime,
-        ),
+        initialRecords,
         context.networkVersion,
     );
 
@@ -136,10 +143,25 @@ export async function replanRoute(
         maxRetries: 0,
     });
 
-    const session = await createRoutingMcpSession(
-        context,
-        services,
-    );
+    const session = await createRoutingMcpSession(context, {
+        ...services,
+
+        async listActiveIncidents(simulationId, scenarioTime) {
+            if (
+                simulationId !== context.simulationId
+                || scenarioTime !== context.scenarioTime
+            ) {
+                throw new ReplanningError(
+                    400,
+                    'El contexto de la evaluación cambió.',
+                );
+            }
+
+            // MCP reutiliza los datos iniciales del agente.
+            // Las geometrías siguen disponibles para calcular la ruta.
+            return initialIncidents;
+        },
+    });
 
     try {
         const available =
@@ -284,13 +306,20 @@ export async function replanRoute(
                     };
                 }
 
-                // Se vuelve a consultar usando la misma fecha.
-                // Conservamos la detección de cambios durante el cálculo.
-                const currentIncidents = readRestrictions(
-                    await services.listActiveIncidents(
+                // La fecha sigue fija, pero los datos se vuelven a leer.
+                // Esta consulta NO utiliza la captura compartida con MCP.
+                const currentRecords = services.refreshActiveIncidents
+                    ? await services.refreshActiveIncidents(
                         context.simulationId,
                         context.scenarioTime,
-                    ),
+                    )
+                    : await services.listActiveIncidents(
+                        context.simulationId,
+                        context.scenarioTime,
+                    );
+
+                const currentIncidents = readRestrictions(
+                    currentRecords,
                     context.networkVersion,
                 );
 
@@ -305,6 +334,7 @@ export async function replanRoute(
                 if (
                     JSON.stringify(previousIds)
                     !== JSON.stringify(currentIds)
+                    || incidentFingerprint(currentRecords) !== initialFingerprint
                 ) {
                     throw new ReplanningError(
                         409,

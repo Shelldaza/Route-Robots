@@ -1,3 +1,4 @@
+import { createSurfaceEvaluation } from '../services/surface-evaluation';
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -36,9 +37,7 @@ import {
 } from '../services/surface-incidents';
 
 import {
-    calculateSurfaceRoute,
     previewSurfacePath,
-    toolIncidents,
 } from '../services/surface-routing';
 
 import {
@@ -56,9 +55,6 @@ import {
     placeIncident,
 } from '../services/incident-placement';
 
-import {
-    contains,
-} from '../../../shared/surfaces';
 
 const surfaceReplanningSchema = routingContextSchema.extend({
     preferredCoordinates: z
@@ -472,94 +468,22 @@ surfaceReplanningRouter.post(
                 ...routingContext
             } = input.data;
 
-            let calculationFailure: RoutingError | null = null;
+            const evaluation = createSurfaceEvaluation(
+                context,
+                at,
+                input.data.origin,
+                preferredCoordinates,
+            );
 
             const result = await replanRoute(
                 {
                     ...routingContext,
                     scenarioTime: at,
                 },
-                {
-                    listActiveIncidents: async (
-                        simulationId,
-                        time,
-                    ) => {
-                        if (
-                            simulationId !== context.simulationId
-                            || !time
-                        ) {
-                            throw new RoutingError(
-                                400,
-                                'El contexto de la evaluación cambió.',
-                            );
-                        }
-
-                        const active = (
-                            await surfaceHistory(
-                                simulationId,
-                                time,
-                                false,
-                            )
-                        ).filter((incident) =>
-                            incident.effect === 'blockage'
-                        );
-
-                        return toolIncidents(
-                            active,
-                            context,
-                        );
-                    },
-
-                    calculateRoute: async (value) => {
-                        const active = (
-                            await surfaceHistory(
-                                context.simulationId,
-                                at,
-                                false,
-                            )
-                        ).filter((incident) =>
-                            incident.effect === 'blockage'
-                        );
-
-                        const history = await surfaceHistory(
-                            context.simulationId,
-                            at,
-                            true,
-                        );
-
-                        const start = input.data.origin;
-
-                        const known = history
-                            .flatMap((incident) =>
-                                incident.surfaceImpact?.contextSurfaces
-                                ?? incident.surfaceImpact?.surfaces
-                                ?? []
-                            )
-                            .filter((surface) =>
-                                contains(
-                                    surface.geometry,
-                                    [start.lng, start.lat],
-                                )
-                            );
-
-                        try {
-                            return await calculateSurfaceRoute(
-                                value,
-                                context,
-                                active,
-                                known,
-                                preferredCoordinates,
-                            );
-                        } catch (error) {
-                            if (error instanceof RoutingError) {
-                                calculationFailure = error;
-                            }
-
-                            throw error;
-                        }
-                    },
-                },
+                evaluation,
             );
+
+            const calculationFailure = evaluation.getFailure();
 
             response.json(
                 result.status === 'not_replanned'
