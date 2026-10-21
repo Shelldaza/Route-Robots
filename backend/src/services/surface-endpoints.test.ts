@@ -4,9 +4,10 @@ import {
     vi,
 } from 'vitest';
 
+// El backend prueba el contrato compartido sin depender del frontend.
 import {
     replanningEndpoints,
-} from '../../../frontend/src/utils/replanning-endpoints';
+} from '../../../shared/routing/replanning-endpoints';
 
 import {
     contains,
@@ -82,6 +83,7 @@ function rectangle(
     };
 }
 
+// Red mínima: permite comprobar los extremos sin depender de la red completa.
 const network: PedestrianNetwork = {
     ...pedestrianNetwork,
     version: 'endpoints-test',
@@ -139,6 +141,7 @@ const impact: SurfaceImpact = {
     unknown: false,
 };
 
+// Un bloqueo obliga a validar el rodeo y la conservación de los extremos.
 const incident = {
     id: 'report',
     effect: 'blockage',
