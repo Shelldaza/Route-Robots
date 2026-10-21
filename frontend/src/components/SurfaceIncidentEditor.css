@@ -1,0 +1,216 @@
+.surface-editor {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.surface-editor fieldset {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.surface-editor label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.surface-editor .surface-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.surface-editor textarea,
+.surface-editor select,
+.surface-editor input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.65rem;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+}
+
+.surface-editor button {
+  cursor: pointer;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid #94a3b8;
+}
+
+.surface-editor button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.surface-editor-note {
+  margin: 0;
+  color: #475569;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.surface-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.75rem;
+  list-style: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.surface-tools li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #334155;
+  font-size: 0.85rem;
+}
+
+.surface-tools li > span {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  color: #0f172a;
+}
+
+.surface-tools svg {
+  width: 22px;
+  height: 22px;
+}
+
+.incident-map-toolbar {
+  box-sizing: border-box;
+  width: min(300px, calc(100vw - 90px));
+  padding: 0.85rem;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px #0f172a26;
+  font: 14px / 1.4 system-ui, sans-serif;
+}
+
+.incident-map-toolbar p {
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.incident-map-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.incident-map-toolbar button {
+  font: inherit;
+  cursor: pointer;
+  padding: 0.5rem 0.65rem;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+}
+
+.incident-map-toolbar button:first-child {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.incident-map-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.leaflet-container .surface-handle {
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  user-select: none;
+  touch-action: none;
+}
+
+.surface-handle-visual {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  pointer-events: none;
+  transform: rotate(var(--surface-handle-rotation, 0deg));
+  transform-origin: center;
+}
+
+.surface-handle-visual svg {
+  display: block;
+  width: 23px;
+  height: 23px;
+}
+
+.leaflet-container .surface-handle--move {
+  cursor: move;
+}
+
+.surface-handle--move .surface-handle-visual {
+  color: #1d4ed8;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  box-shadow: 0 1px 5px #0f172a40;
+}
+
+.leaflet-container .surface-handle--resize {
+  cursor: nwse-resize;
+}
+
+.surface-handle--resize .surface-handle-visual {
+  color: #b91c1c;
+  filter: drop-shadow(0 1px 2px #0f172a4d);
+}
+
+.leaflet-container .surface-handle--rotate {
+  cursor: grab;
+}
+
+.leaflet-container .surface-handle--rotate:active {
+  cursor: grabbing;
+}
+
+.surface-handle--rotate .surface-handle-visual {
+  color: #9a3412;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 50%;
+  box-shadow: 0 1px 5px #0f172a40;
+}
+
+.leaflet-container .surface-handle--disabled {
+  cursor: default !important;
+  opacity: 0.5;
+}
+
+.leaflet-container .surface-handle:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .surface-tools {
+    flex-direction: column;
+  }
+
+  .incident-map-toolbar {
+    max-width: 250px;
+    font-size: 12px;
+  }
+}

@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import {
+  replanningEndpoints,
+} from '../utils/replanning-endpoints'
 
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
 import { drawPedestrianNetwork, fetchPedestrianNetwork } from '../utils/pedestrian-network'
-import type { PedestrianNetwork, PedestrianSegment } from '../utils/pedestrian-network'
+import type { PedestrianNetwork } from '../utils/pedestrian-network'
 
 import SimulationIncidentSection from '../components/SimulationIncidentSection'
 import type {
@@ -247,6 +250,13 @@ function SimulationContent({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
+  const savedMapViewRef = useRef<{
+    route: RouteResponse
+    center: L.LatLng
+    zoom: number
+  } | null>(null)
+  const [incidentMap, setIncidentMap] = useState<L.Map | null>(null)
+  const [incidentDraftOpen, setIncidentDraftOpen] = useState(false)
   // Leaflet conserva su listener entre renders; la referencia permite que
   // lea el modo de selección actual sin reconstruir el mapa en cada clic.
   const selectingLocationRef = useRef(false)
@@ -285,9 +295,6 @@ function SimulationContent({
   const [incidentSaving, setIncidentSaving] = useState(false)
   const [selectingLocation, setSelectingLocation] = useState(false)
   const [network, setNetwork] = useState<PedestrianNetwork | null>(null)
-  const [visibleSegments, setVisibleSegments] = useState<PedestrianSegment[]>([])
-  const [selectedSegments, setSelectedSegments] = useState<PedestrianSegment[]>([])
-  const [scope, setScope] = useState<'segment' | 'street_section'>('segment')
 
   useEffect(() => {
     if (!draft?.networkVersion) return
@@ -346,7 +353,7 @@ function SimulationContent({
 
   // Elegir una ubicación mantiene estable la posición y la hora que
   // se usarán al registrar el incidente y evaluar un posible desvío.
-  const controlsLocked = evaluationBusy || selectingLocation
+  const controlsLocked = evaluationBusy || selectingLocation || incidentDraftOpen
 
   const movementBlocked =
     controlsLocked ||
@@ -432,17 +439,19 @@ function SimulationContent({
 
     if (!origin || !destination) return
 
-    const map = L.map(containerRef.current).setView(
+    const map = L.map(containerRef.current, { maxZoom: 22 }).setView(
       origin,
       15,
     )
 
     mapRef.current = map
+    setIncidentMap(map)
 
     L.tileLayer(
       'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       {
-        maxZoom: 19,
+        maxNativeZoom: 19,
+        maxZoom: 22,
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       },
@@ -511,61 +520,53 @@ function SimulationContent({
     blockedLayerRef.current =
       L.layerGroup().addTo(map)
 
-    map.fitBounds(L.latLngBounds(positions), {
-      padding: [40, 40],
-      maxZoom: 17,
-    })
+    const savedView = savedMapViewRef.current
+
+    if (savedView?.route === route) {
+      map.setView(
+        savedView.center,
+        savedView.zoom,
+      )
+    } else {
+      map.fitBounds(L.latLngBounds(positions), {
+        padding: [40, 40],
+        maxZoom: 17,
+      })
+    }
 
     return () => {
+      savedMapViewRef.current = {
+        route,
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+      }
+
       mapRef.current = null
+      setIncidentMap(null)
       remainingRouteRef.current = null
       originMarkerRef.current = null
       robotMarkerRef.current = null
       blockedLayerRef.current = null
+
       map.remove()
     }
   }, [route, alternative, getSnapshot])
 
   useEffect(() => {
-    const map = mapRef.current
+    if (!incidentMap || !network) return
 
-    if (!map || !network) return
-
+    // Los caminos permanecen visibles independientemente
+    // de si estamos editando un incidente.
     const layer = drawPedestrianNetwork(
-      map,
+      incidentMap,
       network,
-      selectedSegments.map((segment) => segment.id),
-      selectingLocation && !evaluationBusy
-        ? (segment) => {
-          if (!selectingLocationRef.current) return
-
-          setSelectedSegments((current) =>
-            current.some((item) => item.id === segment.id)
-              ? current.filter(
-                (item) => item.id !== segment.id,
-              )
-              : scope === 'segment'
-                ? [segment]
-                : [...current, segment].slice(0, 30),
-          )
-        }
-        : undefined,
-      selectedSegments,
-      setVisibleSegments,
     )
 
     return () => {
       layer.remove()
     }
-  }, [
-    network,
-    selectedSegments,
-    scope,
-    selectingLocation,
-    evaluationBusy,
-    route,
-    alternative,
-  ])
+  }, [incidentMap, network])
+
   useEffect(() => {
     // Actualizamos las capas existentes para no perder el zoom ni el
     // desplazamiento del mapa en cada fotograma de la animación.
@@ -620,6 +621,12 @@ function SimulationContent({
           weight: 9, opacity: 0.8, interactive: false,
         }).addTo(layer)
       })
+      if (incident.surfaceImpact) {
+        L.geoJSON(incident.surfaceImpact.geometry, {
+          style: { color: incident.effect === 'blockage' ? '#dc2626' : incident.effect === 'caution' ? '#d97706' : '#2563eb', weight: 2, fillOpacity: 0.3 },
+          interactive: false,
+        }).addTo(layer)
+      }
       const area = incident.blockedArea
       const center: L.LatLngTuple = [
         (area.south + area.north) / 2,
@@ -683,7 +690,6 @@ function SimulationContent({
     if (evaluationBusy || replanningPendingRef.current) return
 
     pauseScenarioAndRobot()
-    setSelectedSegments([])
     selectingLocationRef.current = true
     setSelectingLocation(true)
     mapRef.current?.getContainer().scrollIntoView({ block: 'center' })
@@ -692,7 +698,6 @@ function SimulationContent({
   function cancelIncidentSelection() {
     selectingLocationRef.current = false
     setSelectingLocation(false)
-    setSelectedSegments([])
     // No reanudamos automáticamente: el usuario decide cuándo continuar.
   }
 
@@ -750,26 +755,17 @@ function SimulationContent({
 
   async function requestReplanning() {
     if (
-      !draft ||
-      !route ||
-      replanningPendingRef.current
+      !draft
+      || !route
+      || replanningPendingRef.current
     ) {
       return
     }
 
     pauseScenarioAndRobot()
 
-    // Toda la evaluación usa una misma hora y posición, capturadas
-    // después de pausar; el desvío empieza donde está el robot ahora.
     const scenarioTime = clock.getScenarioTime()
     const current = motion.getSnapshot()
-
-    const origin = current.position
-      ? {
-        lat: current.position[1],
-        lng: current.position[0],
-      }
-      : draft.origin
 
     setComparisonDistance(current.remainingMeters)
 
@@ -778,12 +774,23 @@ function SimulationContent({
     replanningControllerRef.current = controller
     replanningPendingRef.current = true
 
+    // Evita mostrar métricas de una alternativa anterior
+    // cuando la nueva evaluación no produce un recorrido.
+    setAlternative(null)
     setReplanningStatus('loading')
     setReplanningError('')
     setExplanation('')
     setToolCalls([])
 
     try {
+      const {
+        origin,
+        destination,
+      } = replanningEndpoints(
+        route.geometry.coordinates,
+        current.position,
+      )
+
       const response = await fetch('/api/replanning', {
         method: 'POST',
         headers: {
@@ -791,10 +798,23 @@ function SimulationContent({
         },
         body: JSON.stringify({
           simulationId,
-          ...(route?.networkVersion ? { networkVersion: route.networkVersion } : {}),
-          origin,
-          destination: draft.destination,
+
+          ...(route.networkVersion
+            ? {
+              networkVersion: route.networkVersion,
+            }
+            : {}),
+
+                    origin,
+          destination,
           scenarioTime,
+
+          ...(current.remainingCoordinates.length >= 2
+            ? {
+                preferredCoordinates:
+                  current.remainingCoordinates,
+              }
+            : {}),
         }),
         signal: AbortSignal.any([
           controller.signal,
@@ -816,12 +836,19 @@ function SimulationContent({
       setToolCalls(body.toolCalls)
 
       if (body.status === 'alternative_ready') {
-        if (body.route.networkVersion !== route?.networkVersion) {
-          throw new Error('El desvío pertenece a otra red peatonal. No se aplicó.')
+        if (
+          body.route.networkVersion
+          !== route.networkVersion
+        ) {
+          throw new Error(
+            'El desvío pertenece a otra red peatonal. No se aplicó.',
+          )
         }
-        // Cambia el tramo pendiente y conserva la distancia y el tiempo
-        // acumulados; la nueva ruta queda pausada hasta reanudarla.
+
+        // Conserva la distancia y el tiempo acumulados.
+        // El nuevo recorrido comienza en la posición actual.
         loadRoute(body.route, true)
+
         setAlternative(body.route)
         setReplanningStatus('ready')
       } else {
@@ -829,12 +856,16 @@ function SimulationContent({
       }
     } catch (caught) {
       if (!controller.signal.aborted) {
-        setReplanningError(getErrorMessage(caught))
+        setReplanningError(
+          getErrorMessage(caught),
+        )
+
         setReplanningStatus('error')
       }
     } finally {
       if (
-        replanningControllerRef.current === controller
+        replanningControllerRef.current
+        === controller
       ) {
         replanningPendingRef.current = false
         replanningControllerRef.current = null
@@ -1217,8 +1248,10 @@ function SimulationContent({
 
             {route.networkVersion && <p className="simulation-notice">
               Sandbox peatonal: los recorridos usan la red fija de veredas y cruces de OpenStreetMap.
-              Violeta: veredas y caminos. Naranja: cruces. Rojo: tramos seleccionados o bloqueados.
-              La conectividad corresponde al mapa; no certifica la accesibilidad física del robot.
+
+              La conectividad corresponde al mapa;Las líneas peatonales se muestran al acercar el mapa.
+              Las superficies y los controles aparecen al ubicar
+              un incidente. Los reportes se colorean según su efecto. no certifica la accesibilidad física del robot.
             </p>}
             <p className="simulation-notice">
               El reloj del escenario puede avanzar con el
@@ -1618,23 +1651,10 @@ function SimulationContent({
               }
               randomReportsDisabled={controlsLocked}
               legacyAreaTestsEnabled={!draft.networkVersion}
-              network={
-                network
-                  ? { ...network, segments: visibleSegments }
-                  : null
-              }
-              selectedSegments={selectedSegments}
-              scope={scope}
-              onScopeChange={(value) => {
-                setScope(value)
-                if (value === 'segment') setSelectedSegments((current) => current.slice(0, 1))
-              }}
-              onToggleSegment={(segment) => {
-                if (!selectingLocationRef.current || evaluationBusy) return
-                setSelectedSegments((current) => current.some((item) => item.id === segment.id)
-                  ? current.filter((item) => item.id !== segment.id)
-                  : scope === 'segment' ? [segment] : [...current, segment].slice(0, 30))
-              }}
+              network={network}
+              map={incidentMap}
+              editorDisabled={evaluationBusy}
+              onDraftChange={setIncidentDraftOpen}
               selectingLocation={selectingLocation}
               onSelectLocation={selectIncidentLocation}
               onCancelSelection={cancelIncidentSelection}

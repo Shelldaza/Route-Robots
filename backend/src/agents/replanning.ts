@@ -283,17 +283,21 @@ export async function replanRoute(
                 if (pedestrianIncidents.length > 0) {
                     const route = candidate.route;
 
-                    // Para validar por tramos necesitamos una ruta
-                    // calculada sobre la misma versión de la red.
+                    const blockedSegmentIds = new Set(
+                        pedestrianIncidents.flatMap((incident) =>
+                            incident.pedestrianImpact?.segmentIds ?? []
+                        ),
+                    );
+
+                    // Tanto las maniobras sobre superficies como
+                    // las rutas del grafo pertenecen a la misma red.
                     if (
                         !context.networkVersion
                         || route.provider !== 'pedestrian-sandbox'
                         || route.networkVersion !== context.networkVersion
-                        || !Array.isArray(route.segmentIds)
-                        || pedestrianIncidents.some(
-                            (incident) =>
-                                incident.pedestrianImpact?.networkVersion
-                                !== context.networkVersion,
+                        || pedestrianIncidents.some((incident) =>
+                            incident.pedestrianImpact?.networkVersion
+                            !== context.networkVersion
                         )
                     ) {
                         throw new ReplanningError(
@@ -302,16 +306,25 @@ export async function replanRoute(
                         );
                     }
 
-                    const blockedSegmentIds = new Set(
-                        pedestrianIncidents.flatMap(
-                            (incident) =>
-                                incident.pedestrianImpact?.segmentIds ?? [],
-                        ),
-                    );
+                    // Los incidentes sobre superficies llegan a MCP
+                    // sin tramos completos bloqueados. Su geometría
+                    // se verifica en calculateSurfaceRoute.
+                    //
+                    // Si existen bloqueos por tramo, exigimos los
+                    // IDs recorridos para comprobarlos también.
+                    if (
+                        blockedSegmentIds.size > 0
+                        && !Array.isArray(route.segmentIds)
+                    ) {
+                        throw new ReplanningError(
+                            409,
+                            'No se pudieron verificar los tramos recorridos frente a los bloqueos peatonales.',
+                        );
+                    }
 
                     if (
-                        route.segmentIds.some(
-                            (id) => blockedSegmentIds.has(id),
+                        (route.segmentIds ?? []).some((id) =>
+                            blockedSegmentIds.has(id)
                         )
                     ) {
                         throw new ReplanningError(
