@@ -1,10 +1,36 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+
 import * as L from 'leaflet'
-import { getRouteBlockages } from '../utils/route-geometry'
+import { useLocation } from 'react-router'
+
+import SurfaceIncidentEditor from './SurfaceIncidentEditor'
 import RandomFleetReports from './RandomFleetReports'
-import IncidentReportForm from './IncidentReportForm'
-import { isPedestrianImpact } from '../utils/pedestrian-network'
-import type { PedestrianImpact, PedestrianNetwork, PedestrianSegment } from '../utils/pedestrian-network'
+
+import {
+  isArea,
+  lineHits,
+} from '../../../shared/surfaces'
+
+import type {
+  SurfaceImpact,
+} from '../../../shared/surfaces'
+
+import {
+  getRouteBlockages,
+} from '../utils/route-geometry'
+
+import {
+  isPedestrianImpact,
+} from '../utils/pedestrian-network'
+
+import type {
+  PedestrianImpact,
+  PedestrianNetwork,
+} from '../utils/pedestrian-network'
 
 export type BlockedArea = {
   south: number
@@ -22,19 +48,21 @@ export type Incident = {
   id: string
   simulationId: string
   type: string
-  source: 'simulation' | 'manual' | 'ai_generated'
+  source:
+    | 'simulation'
+    | 'manual'
+    | 'ai_generated'
   description: string
   effect: IncidentEffect
   reporterName: string | null
   blockedArea: BlockedArea
   pedestrianImpact?: PedestrianImpact | null
+  surfaceImpact?: SurfaceImpact | null
   createdAt: string
   startsAt: string
   expiresAt: string
 }
 
-// Las coordenadas de las rutas usan el orden GeoJSON:
-// [longitud, latitud].
 type Coordinate = [number, number]
 
 type IncidentStatus =
@@ -47,35 +75,32 @@ type BlockageRecord = {
   blockedArea: BlockedArea
 }
 
-type ChangeOptions = {
-  requestReplanning: boolean
-}
-
 type Props = {
   simulationId: string
   coordinates: Coordinate[]
   scenarioTime: string
   randomReportsDisabled: boolean
   getScenarioTime: () => string
-
-  // La página administra los clics y el marcador del mapa.
   legacyAreaTestsEnabled: boolean
   network: PedestrianNetwork | null
-  selectedSegments: PedestrianSegment[]
-  scope: 'segment' | 'street_section'
-  onScopeChange: (scope: 'segment' | 'street_section') => void
-  onToggleSegment: (segment: PedestrianSegment) => void
+  map: L.Map | null
+  editorDisabled: boolean
+  onDraftChange: (open: boolean) => void
   selectingLocation: boolean
   onSelectLocation: () => void
   onCancelSelection: () => void
-
   onBeforeCreate?: () => void
-  onCreatingChange?: (creating: boolean) => void
-  onActiveIncidentsChange: (incidents: Incident[]) => void
-
+  onCreatingChange?: (
+    creating: boolean,
+  ) => void
+  onActiveIncidentsChange: (
+    incidents: Incident[],
+  ) => void
   onBlockedAreasChange: (
     areas: BlockedArea[],
-    options: ChangeOptions,
+    options: {
+      requestReplanning: boolean
+    },
   ) => void
 }
 
@@ -104,86 +129,119 @@ const STATUS_LABELS: Record<IncidentStatus, string> = {
   finished: 'Finalizado',
 }
 
-function isBlockedArea(value: unknown): value is BlockedArea {
-  if (!value || typeof value !== 'object') return false
+function isBlockedArea(
+  value: unknown,
+): value is BlockedArea {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
 
   const area = value as Record<string, unknown>
 
   return (
-    typeof area.south === 'number' &&
-    Number.isFinite(area.south) &&
-    area.south >= -90 &&
-    typeof area.north === 'number' &&
-    Number.isFinite(area.north) &&
-    area.north <= 90 &&
-    area.south < area.north &&
-    typeof area.west === 'number' &&
-    Number.isFinite(area.west) &&
-    area.west >= -180 &&
-    typeof area.east === 'number' &&
-    Number.isFinite(area.east) &&
-    area.east <= 180 &&
-    area.west < area.east
+    typeof area.south === 'number'
+    && Number.isFinite(area.south)
+    && area.south >= -90
+    && typeof area.north === 'number'
+    && Number.isFinite(area.north)
+    && area.north <= 90
+    && area.south < area.north
+    && typeof area.west === 'number'
+    && Number.isFinite(area.west)
+    && area.west >= -180
+    && typeof area.east === 'number'
+    && Number.isFinite(area.east)
+    && area.east <= 180
+    && area.west < area.east
   )
 }
 
-function isDateString(value: unknown): value is string {
+function isDateString(
+  value: unknown,
+): value is string {
   return (
-    typeof value === 'string' &&
-    Number.isFinite(Date.parse(value))
+    typeof value === 'string'
+    && Number.isFinite(Date.parse(value))
   )
 }
 
-// Las respuestas HTTP se validan antes de incorporarlas al estado.
-// Una anotación de TypeScript no valida los datos recibidos.
-function isIncident(value: unknown): value is Incident {
-  if (!value || typeof value !== 'object') return false
+function isIncident(
+  value: unknown,
+): value is Incident {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
 
   const incident = value as Record<string, unknown>
 
   return (
-    typeof incident.id === 'string' &&
-    incident.id.length > 0 &&
-    typeof incident.simulationId === 'string' &&
-    typeof incident.type === 'string' &&
-    Object.prototype.hasOwnProperty.call(
+    typeof incident.id === 'string'
+    && incident.id.length > 0
+    && typeof incident.simulationId === 'string'
+    && typeof incident.type === 'string'
+    && Object.prototype.hasOwnProperty.call(
       INCIDENT_LABELS,
       incident.type,
-    ) &&
-    (
-      incident.source === 'simulation' ||
-      incident.source === 'manual' ||
-      incident.source === 'ai_generated'
-    ) &&
-    typeof incident.description === 'string' &&
-    (
-      incident.effect === 'informational' ||
-      incident.effect === 'caution' ||
-      incident.effect === 'blockage'
-    ) &&
-    (
-      incident.reporterName === null ||
-      typeof incident.reporterName === 'string'
-    ) &&
-    (incident.pedestrianImpact == null || isPedestrianImpact(incident.pedestrianImpact)) &&
-    isBlockedArea(incident.blockedArea) &&
-    isDateString(incident.createdAt) &&
-    isDateString(incident.startsAt) &&
-    isDateString(incident.expiresAt) &&
-    Date.parse(incident.expiresAt) >
-    Date.parse(incident.startsAt)
+    )
+    && (
+      incident.source === 'simulation'
+      || incident.source === 'manual'
+      || incident.source === 'ai_generated'
+    )
+    && typeof incident.description === 'string'
+    && (
+      incident.effect === 'informational'
+      || incident.effect === 'caution'
+      || incident.effect === 'blockage'
+    )
+    && (
+      incident.reporterName === null
+      || typeof incident.reporterName === 'string'
+    )
+    && (
+      incident.pedestrianImpact == null
+      || isPedestrianImpact(
+        incident.pedestrianImpact,
+      )
+    )
+    && (
+      incident.surfaceImpact == null
+      || (
+        typeof incident.surfaceImpact === 'object'
+        && isArea(
+          (
+            incident.surfaceImpact as SurfaceImpact
+          ).geometry,
+        )
+        && isArea(
+          (
+            incident.surfaceImpact as SurfaceImpact
+          ).collisionGeometry,
+        )
+      )
+    )
+    && isBlockedArea(incident.blockedArea)
+    && isDateString(incident.createdAt)
+    && isDateString(incident.startsAt)
+    && isDateString(incident.expiresAt)
+    && Date.parse(incident.expiresAt)
+      > Date.parse(incident.startsAt)
   )
 }
 
-async function readResponse(response: Response): Promise<unknown> {
-  const body: unknown = await response.json().catch(() => null)
+async function readResponse(
+  response: Response,
+): Promise<unknown> {
+  const body: unknown = await response
+    .json()
+    .catch(() => null)
 
   if (!response.ok) {
     const message =
-      body &&
-        typeof body === 'object' &&
-        'message' in body &&
-        typeof body.message === 'string'
+      body
+      && typeof body === 'object'
+      && 'message' in body
+      && typeof body.message === 'string'
         ? body.message
         : 'No se pudo completar la operación.'
 
@@ -198,9 +256,9 @@ function validateIncidentList(
   simulationId: string,
 ): Incident[] {
   if (
-    !Array.isArray(value) ||
-    !value.every(isIncident) ||
-    value.some(
+    !Array.isArray(value)
+    || !value.every(isIncident)
+    || value.some(
       (incident) =>
         incident.simulationId !== simulationId,
     )
@@ -225,17 +283,16 @@ async function fetchHistory(
   })
 
   const response = await fetch(
-    `/api/incidents?${query.toString()}`,
+    `/api/surfaces/history?${query}`,
     { signal },
   )
 
-  const body = await readResponse(response)
-
-  return validateIncidentList(body, simulationId)
+  return validateIncidentList(
+    await readResponse(response),
+    simulationId,
+  )
 }
 
-// La vigencia depende del reloj del escenario, no de Date.now().
-// El instante de vencimiento ya pertenece al estado "finalizado".
 function getIncidentStatus(
   incident: Incident,
   nowMs: number,
@@ -262,8 +319,6 @@ function formatDate(value: string): string {
   })
 }
 
-// La prueba rápida coloca el bloqueo en la mitad de la distancia
-// del recorrido, no en el elemento central del arreglo.
 function createMiddleBlockage(
   coordinates: Coordinate[],
 ): BlockedArea {
@@ -273,7 +328,11 @@ function createMiddleBlockage(
 
   let totalDistance = 0
 
-  for (let index = 1; index < positions.length; index += 1) {
+  for (
+    let index = 1;
+    index < positions.length;
+    index++
+  ) {
     const previous = positions[index - 1]
     const current = positions[index]
 
@@ -289,35 +348,40 @@ function createMiddleBlockage(
   }
 
   const targetDistance = totalDistance / 2
+
   let accumulated = 0
   let center: L.LatLng | null = null
 
-  for (let index = 1; index < positions.length; index += 1) {
+  for (
+    let index = 1;
+    index < positions.length;
+    index++
+  ) {
     const previous = positions[index - 1]
     const current = positions[index]
 
     if (!previous || !current) continue
 
-    const segmentDistance = previous.distanceTo(current)
+    const distance = previous.distanceTo(current)
 
     if (
-      segmentDistance > 0 &&
-      accumulated + segmentDistance >= targetDistance
+      distance > 0
+      && accumulated + distance >= targetDistance
     ) {
       const fraction =
-        (targetDistance - accumulated) / segmentDistance
+        (targetDistance - accumulated) / distance
 
       center = L.latLng(
-        previous.lat +
-        (current.lat - previous.lat) * fraction,
-        previous.lng +
-        (current.lng - previous.lng) * fraction,
+        previous.lat
+          + (current.lat - previous.lat) * fraction,
+        previous.lng
+          + (current.lng - previous.lng) * fraction,
       )
 
       break
     }
 
-    accumulated += segmentDistance
+    accumulated += distance
   }
 
   if (!center) {
@@ -326,12 +390,12 @@ function createMiddleBlockage(
     )
   }
 
-  // Aproximación local de un área de 20 × 20 metros.
   const halfHeight = 10 / 111320
+
   const halfWidth =
     10 / (
-      111320 *
-      Math.cos((center.lat * Math.PI) / 180)
+      111320
+      * Math.cos(center.lat * Math.PI / 180)
     )
 
   const area: BlockedArea = {
@@ -342,21 +406,19 @@ function createMiddleBlockage(
   }
 
   const origin = positions[0]
-  const destination = positions[positions.length - 1]
+  const destination = positions.at(-1)
 
   const contains = (point: L.LatLng) =>
-    point.lat >= area.south &&
-    point.lat <= area.north &&
-    point.lng >= area.west &&
-    point.lng <= area.east
+    point.lat >= area.south
+    && point.lat <= area.north
+    && point.lng >= area.west
+    && point.lng <= area.east
 
-  // Evita crear una prueba sin salida por cubrir al robot
-  // o al punto al que debe llegar.
   if (
-    !origin ||
-    !destination ||
-    contains(origin) ||
-    contains(destination)
+    !origin
+    || !destination
+    || contains(origin)
+    || contains(destination)
   ) {
     throw new Error(
       'El bloqueo quedaría sobre el robot o el destino. Probá otro recorrido.',
@@ -366,10 +428,12 @@ function createMiddleBlockage(
   return area
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(
+  error: unknown,
+): string {
   if (
-    error instanceof Error &&
-    error.name === 'TimeoutError'
+    error instanceof Error
+    && error.name === 'TimeoutError'
   ) {
     return 'La operación tardó demasiado. Actualizá los incidentes para comprobar si el reporte se guardó.'
   }
@@ -382,6 +446,7 @@ function getErrorMessage(error: unknown): string {
     ? error.message
     : 'No se pudo completar la operación.'
 }
+
 function mergeIncidents(
   current: Incident[],
   incoming: Incident[],
@@ -398,13 +463,13 @@ function mergeIncidents(
   }
 
   return [...records.values()].sort(
-    (first, second) =>
-      Date.parse(second.startsAt)
-      - Date.parse(first.startsAt),
+    (a, b) =>
+      Date.parse(b.startsAt)
+      - Date.parse(a.startsAt),
   )
 }
 
-function SimulationIncidentSection({
+export default function SimulationIncidentSection({
   simulationId,
   coordinates,
   scenarioTime,
@@ -416,40 +481,61 @@ function SimulationIncidentSection({
   onBlockedAreasChange,
   legacyAreaTestsEnabled,
   network,
-  selectedSegments,
-  scope,
-  onScopeChange,
-  onToggleSegment,
+  map,
+  editorDisabled,
+  onDraftChange,
   selectingLocation,
   onSelectLocation,
   onCancelSelection,
 }: Props) {
-  const [incidents, setIncidents] = useState<Incident[]>([])
+  const location = useLocation()
+
+  const navigation = location.state as {
+    robot?: {
+      id?: string
+    }
+  } | null
+
+  const robotId = navigation?.robot?.id
+
+  const [incidents, setIncidents] =
+    useState<Incident[]>([])
+
   const [loading, setLoading] = useState(true)
-  const [savingQuickTest, setSavingQuickTest] = useState(false)
-  const [savingManualReport, setSavingManualReport] = useState(false)
+
+  const [savingQuickTest, setSavingQuickTest] =
+    useState(false)
+
+  const [savingManualReport, setSavingManualReport] =
+    useState(false)
+
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
-  const activeIncidentsCallbackRef = useRef(onActiveIncidentsChange)
+
+  const activeCallback = useRef(
+    onActiveIncidentsChange,
+  )
+
+  const changeCallback = useRef(
+    onBlockedAreasChange,
+  )
+
+  const previousBlockages = useRef('[]')
+  const pending = useRef(false)
+
+  const busy =
+    loading
+    || savingQuickTest
+    || savingManualReport
 
   useEffect(() => {
-    activeIncidentsCallbackRef.current = onActiveIncidentsChange
+    activeCallback.current =
+      onActiveIncidentsChange
   }, [onActiveIncidentsChange])
 
-  // El ref impide dos solicitudes rápidas antes de que React
-  // llegue a renderizar el botón deshabilitado.
-  const pendingRef = useRef(false)
-
-  const changeCallbackRef = useRef(onBlockedAreasChange)
-  const previousBlockagesRef = useRef('[]')
-
-  const saving = savingQuickTest || savingManualReport
-  const busy = loading || saving
-
-  // Mantiene el callback actualizado sin volver a notificar
-  // los mismos bloqueos por cada render del padre.
   useEffect(() => {
-    changeCallbackRef.current = onBlockedAreasChange
+    changeCallback.current =
+      onBlockedAreasChange
   }, [onBlockedAreasChange])
 
   useEffect(() => {
@@ -470,8 +556,8 @@ function SimulationIncidentSection({
         )
 
         if (!controller.signal.aborted) {
-          setIncidents(
-            (current) => mergeIncidents(current, history),
+          setIncidents((current) =>
+            mergeIncidents(current, history),
           )
         }
       } catch (caught) {
@@ -488,20 +574,36 @@ function SimulationIncidentSection({
     void loadHistory()
 
     return () => controller.abort()
-  }, [simulationId, getScenarioTime, reloadKey])
+  }, [
+    simulationId,
+    getScenarioTime,
+    reloadKey,
+  ])
 
   const nowMs = Date.parse(scenarioTime)
 
-  // El historial se conserva completo. Los estados se derivan
-  // localmente sin consultar el backend en cada tick del reloj.
-  const activeIncidents = incidents.filter(
+  const active = incidents.filter(
     (incident) =>
       getIncidentStatus(incident, nowMs) === 'active',
   )
 
-  // Se recalcula también al avanzar o cargar un desvío: un bloqueo
-  // puede seguir activo en el mapa y dejar de afectar al tramo pendiente.
-  const routeBlockages = getRouteBlockages(coordinates, activeIncidents)
+  const routeBlockages = [
+    ...getRouteBlockages(
+      coordinates,
+      active.filter(
+        (incident) => !incident.surfaceImpact,
+      ),
+    ),
+
+    ...active.filter((incident) =>
+      incident.effect === 'blockage'
+      && incident.surfaceImpact
+      && lineHits(
+        coordinates,
+        incident.surfaceImpact.collisionGeometry,
+      ),
+    ),
+  ]
 
   const finishedCount = incidents.filter(
     (incident) =>
@@ -509,71 +611,76 @@ function SimulationIncidentSection({
   ).length
 
   const scheduledCount =
-    incidents.length -
-    activeIncidents.length -
-    finishedCount
+    incidents.length
+    - active.length
+    - finishedCount
 
-  // El reloj cambia continuamente, pero el mapa solo necesita actualizarse
-  // cuando cambia el conjunto de incidentes activos o sus datos.
-  const activeIncidentsKey = JSON.stringify(
-    [...activeIncidents].sort((first, second) =>
-      first.id.localeCompare(second.id),
+  const activeKey = JSON.stringify(
+    active.map((incident) =>
+      incident.surfaceImpact
+        ? {
+          ...incident,
+          pedestrianImpact: null,
+        }
+        : incident,
+    ).sort(
+      (a, b) => a.id.localeCompare(b.id),
     ),
   )
 
   useEffect(() => {
-    const current = JSON.parse(activeIncidentsKey) as Incident[]
+    activeCallback.current(
+      JSON.parse(activeKey) as Incident[],
+    )
+  }, [activeKey])
 
-    activeIncidentsCallbackRef.current(current)
-  }, [activeIncidentsKey])
-  // La clave omite los bloqueos lejanos y los que quedaron atrás.
-  // Aunque las coordenadas cambien en cada fotograma, solo notificamos
-  // si cambia el conjunto de bloqueos que cruza el recorrido pendiente.
   const blockagesKey = JSON.stringify(
-    routeBlockages
-      .map((incident) => ({
-        id: incident.id,
-        blockedArea: incident.blockedArea,
-      }))
-      .sort((first, second) =>
-        first.id.localeCompare(second.id),
-      ),
+    routeBlockages.map((incident) => ({
+      id: incident.id,
+      blockedArea: incident.blockedArea,
+    })).sort(
+      (a, b) => a.id.localeCompare(b.id),
+    ),
   )
 
   useEffect(() => {
-    const previousKey = previousBlockagesRef.current
+    if (
+      previousBlockages.current === blockagesKey
+    ) {
+      return
+    }
 
-    if (previousKey === blockagesKey) return
+    const previous = JSON.parse(
+      previousBlockages.current,
+    ) as BlockageRecord[]
 
-    // Estas cadenas se generan dentro del componente.
-    // Los datos de la API ya fueron validados al recibirlos.
-    const previous =
-      JSON.parse(previousKey) as BlockageRecord[]
-
-    const current =
-      JSON.parse(blockagesKey) as BlockageRecord[]
+    const current = JSON.parse(
+      blockagesKey,
+    ) as BlockageRecord[]
 
     const previousRecords = new Set(
-      previous.map((record) => JSON.stringify(record)),
+      previous.map(
+        (record) => JSON.stringify(record),
+      ),
     )
 
-    // Un bloqueo que pasa a afectar al recorrido requiere evaluación.
-    // Retirarlo por vencimiento o por cargar un desvío no solicita IA.
     const requestReplanning = current.some(
       (record) =>
-        !previousRecords.has(JSON.stringify(record)),
+        !previousRecords.has(
+          JSON.stringify(record),
+        ),
     )
 
-    previousBlockagesRef.current = blockagesKey
+    previousBlockages.current = blockagesKey
 
-    changeCallbackRef.current(
-      current.map((record) => record.blockedArea),
+    changeCallback.current(
+      current.map(
+        (record) => record.blockedArea,
+      ),
       { requestReplanning },
     )
   }, [blockagesKey])
 
-  // El formulario espera esta promesa para distinguir entre
-  // un fallo al guardar y un fallo al actualizar la pantalla.
   async function refreshHistory(): Promise<void> {
     const history = await fetchHistory(
       simulationId,
@@ -581,28 +688,31 @@ function SimulationIncidentSection({
       AbortSignal.timeout(40000),
     )
 
-    setIncidents(
-      (current) => mergeIncidents(current, history),
+    setIncidents((current) =>
+      mergeIncidents(current, history),
     )
+
     setError('')
   }
 
-  function handleManualCreatingChange(creating: boolean) {
+  function handleCreatingChange(
+    creating: boolean,
+  ) {
     setSavingManualReport(creating)
     onCreatingChange?.(creating)
   }
 
   async function simulateBlockage() {
     if (
-      pendingRef.current ||
-      busy ||
-      coordinates.length < 2 ||
-      routeBlockages.length > 0
+      pending.current
+      || busy
+      || coordinates.length < 2
+      || routeBlockages.length > 0
     ) {
       return
     }
 
-    pendingRef.current = true
+    pending.current = true
     setSavingQuickTest(true)
     setError('')
 
@@ -610,55 +720,57 @@ function SimulationIncidentSection({
       onBeforeCreate?.()
       onCreatingChange?.(true)
 
-      // Se toma la fecha después de pausar el escenario.
       const startsAt = getScenarioTime()
       const atMs = Date.parse(startsAt)
 
-      // Antes de insertar, recupera un posible bloqueo cuya
-      // respuesta se haya perdido en una solicitud anterior.
-      // Esto no reemplaza una clave de idempotencia del backend.
       const history = await fetchHistory(
         simulationId,
         startsAt,
         AbortSignal.timeout(40000),
       )
 
-      setIncidents(
-        (current) => mergeIncidents(current, history),
+      setIncidents((current) =>
+        mergeIncidents(current, history),
       )
 
-      const existingBlockage = getRouteBlockages(
+      const existing = getRouteBlockages(
         coordinates,
-        history.filter((incident) =>
-          getIncidentStatus(incident, atMs) === 'active',
+        history.filter(
+          (incident) =>
+            getIncidentStatus(
+              incident,
+              atMs,
+            ) === 'active',
         ),
       )[0]
 
-      if (existingBlockage) return
+      if (existing) return
 
-      const blockedArea = createMiddleBlockage(coordinates)
-
-      const response = await fetch('/api/incidents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        '/api/incidents',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            simulationId,
+            blockedArea:
+              createMiddleBlockage(coordinates),
+            type: 'blockage',
+            source: 'simulation',
+            startsAt,
+            durationMinutes: 15,
+          }),
+          signal: AbortSignal.timeout(40000),
         },
-        body: JSON.stringify({
-          simulationId,
-          blockedArea,
-          type: 'blockage',
-          source: 'simulation',
-          startsAt,
-          durationMinutes: 15,
-        }),
-        signal: AbortSignal.timeout(40000),
-      })
+      )
 
       const body = await readResponse(response)
 
       if (
-        !isIncident(body) ||
-        body.simulationId !== simulationId
+        !isIncident(body)
+        || body.simulationId !== simulationId
       ) {
         throw new Error(
           'El servidor devolvió un incidente inválido.',
@@ -674,7 +786,7 @@ function SimulationIncidentSection({
     } catch (caught) {
       setError(getErrorMessage(caught))
     } finally {
-      pendingRef.current = false
+      pending.current = false
       setSavingQuickTest(false)
       onCreatingChange?.(false)
     }
@@ -691,11 +803,25 @@ function SimulationIncidentSection({
 
       <h2>Incidentes del escenario</h2>
 
-      <p>
-        Reportá un incidente seleccionando su tipo y
-        ubicación. La descripción y la duración tienen
-        valores predeterminados que podés editar.
-      </p>
+      {network && robotId && (
+        <SurfaceIncidentEditor
+          simulationId={simulationId}
+          map={map}
+          network={network}
+          robotId={robotId}
+          coordinates={coordinates}
+          scenarioTime={scenarioTime}
+          getScenarioTime={getScenarioTime}
+          disabled={loading || editorDisabled}
+          onSelectLocation={onSelectLocation}
+          onCancelSelection={onCancelSelection}
+          onDraftChange={onDraftChange}
+          onBeforeCreate={onBeforeCreate}
+          onCreatingChange={handleCreatingChange}
+          onCreated={refreshHistory}
+        />
+      )}
+
       {network && (
         <RandomFleetReports
           simulationId={simulationId}
@@ -708,64 +834,40 @@ function SimulationIncidentSection({
             || selectingLocation
           }
           validateIncident={isIncident}
-          onReported={(incident) => {
-            setIncidents(
-              (current) =>
-                mergeIncidents(current, [incident]),
+          onReported={(incident) =>
+            setIncidents((current) =>
+              mergeIncidents(
+                current,
+                [incident],
+              ),
             )
-          }}
+          }
         />
       )}
 
+      {legacyAreaTestsEnabled && (
+        <details>
+          <summary>
+            Prueba rápida de bloqueo
+          </summary>
 
-      <IncidentReportForm
-        simulationId={simulationId}
-        network={network}
-        selectedSegments={selectedSegments}
-        scope={scope}
-        onScopeChange={onScopeChange}
-        onToggleSegment={onToggleSegment}
-        selecting={selectingLocation}
-        disabled={busy}
-        getScenarioTime={getScenarioTime}
-        onSelectLocation={onSelectLocation}
-        onCancelSelection={onCancelSelection}
-        onBeforeCreate={() => onBeforeCreate?.()}
-        onCreatingChange={handleManualCreatingChange}
-        onCreated={refreshHistory}
-      />
-
-      {/* Se conserva como herramienta de prueba mientras
-          el formulario manual incorpora todas las opciones. */}
-      {legacyAreaTestsEnabled && <details className="simulation-quick-test">
-        <summary>Prueba rápida de bloqueo</summary>
-
-        <p>
-          Coloca un bloqueo de 15 minutos en la mitad
-          del recorrido pendiente.
-        </p>
-
-        <button
-          className="simulation-incident-button"
-          type="button"
-          onClick={() => void simulateBlockage()}
-          disabled={
-            busy ||
-            coordinates.length < 2 ||
-            routeBlockages.length > 0
-          }
-        >
-          {loading
-            ? 'Cargando incidentes…'
-            : savingQuickTest
-              ? 'Registrando bloqueo…'
-              : routeBlockages.length > 0
-                ? 'Hay un bloqueo sobre el recorrido'
-                : coordinates.length < 2
-                  ? 'Sin recorrido pendiente'
-                  : 'Simular bloqueo en el recorrido'}
-        </button>
-      </details>}
+          <button
+            type="button"
+            onClick={() =>
+              void simulateBlockage()
+            }
+            disabled={
+              busy
+              || coordinates.length < 2
+              || routeBlockages.length > 0
+            }
+          >
+            {savingQuickTest
+              ? 'Registrando…'
+              : 'Simular bloqueo de 15 minutos en el recorrido'}
+          </button>
+        </details>
+      )}
 
       {error && (
         <p
@@ -776,103 +878,78 @@ function SimulationIncidentSection({
         </p>
       )}
 
-      {/* Disponible también sin error para recuperar reportes
-          creados desde otra petición o con respuesta perdida. */}
       <button
-        className="simulation-retry"
         type="button"
         onClick={() =>
-          setReloadKey((current) => current + 1)
+          setReloadKey(
+            (current) => current + 1,
+          )
         }
         disabled={busy}
       >
         {loading
-          ? 'Actualizando incidentes…'
+          ? 'Actualizando…'
           : 'Actualizar incidentes'}
       </button>
 
-      <div
-        className="simulation-incident-result"
-        role="status"
-      >
-        <p>
-          <strong>Activos:</strong>{' '}
-          {activeIncidents.length}
-          {' · '}
-          <strong>Bloqueos sobre el recorrido:</strong>{' '}
-          {routeBlockages.length}
-          {' · '}
-          <strong>Programados:</strong>{' '}
-          {scheduledCount}
-          {' · '}
-          <strong>Finalizados:</strong>{' '}
-          {finishedCount}
-        </p>
+      <p role="status">
+        Activos: {active.length}
+        {' · '}
+        Restricciones sobre el recorrido:
+        {' '}{routeBlockages.length}
+        {' · '}
+        Programados: {scheduledCount}
+        {' · '}
+        Finalizados: {finishedCount}.
+        La vigencia sigue el reloj del escenario.
+      </p>
 
-        <p>
-          La vigencia sigue el reloj del escenario.
-          Los incidentes finalizados se conservan
-          en el historial.
-        </p>
-      </div>
+      <details>
+        <summary>
+          Historial de incidentes
+          {' '}({incidents.length})
+        </summary>
 
-      {incidents.length > 0 && (
-        <details>
-          <summary>
-            Historial de incidentes ({incidents.length})
-          </summary>
+        {incidents.map((incident) => (
+          <div
+            className="simulation-incident-result"
+            key={incident.id}
+          >
+            <strong>
+              {INCIDENT_LABELS[incident.type]}
+              {' · '}
+              {STATUS_LABELS[
+                getIncidentStatus(
+                  incident,
+                  nowMs,
+                )
+              ]}
+            </strong>
 
-          {incidents.map((incident) => {
-            const status = getIncidentStatus(
-              incident,
-              nowMs,
-            )
+            <p>{incident.description}</p>
 
-            return (
-              <div
-                className="simulation-incident-result"
-                key={incident.id}
-              >
-                <p>
-                  <strong>
-                    {INCIDENT_LABELS[incident.type]}
-                  </strong>
-                  {' · '}
-                  {STATUS_LABELS[status]}
-                </p>
+            <p>
+              {incident.surfaceImpact
+                ? `Efecto: ${EFFECT_LABELS[incident.effect]}. Área delimitada sobre la superficie cartográfica.`
+                : `Efecto: ${EFFECT_LABELS[incident.effect]}. Alcance: ${incident.pedestrianImpact ? 'Tramos completos' : 'Área de prueba'}.`}
+            </p>
 
-                <p>{incident.description}</p>
+            <p>
+              Informante:{' '}
+              {incident.reporterName
+                ?? 'Sin identificar'}
+            </p>
 
-                <p>
-                  Efecto:{' '}
-                  {EFFECT_LABELS[incident.effect]}
-                </p>
-
-                <p>
-                  Alcance: {incident.pedestrianImpact
-                    ? `${incident.pedestrianImpact.scope === 'segment' ? 'Un tramo' : 'Sección seleccionada'} · ${incident.pedestrianImpact.segmentIds.length} tramo(s)`
-                    : 'Área del modelo anterior'}
-                </p>
-
-                <p>
-                  Informante:{' '}
-                  {incident.reporterName ?? 'Sin identificar'}
-                </p>
-
-                <p>
-                  Inicio: {formatDate(incident.startsAt)}
-                </p>
-
-                <p>
-                  Fin: {formatDate(incident.expiresAt)}
-                </p>
-              </div>
-            )
-          })}
-        </details>
-      )}
+            <p>
+              Inicio:
+              {' '}{formatDate(incident.startsAt)}
+              {' · '}
+              Fin:
+              {' '}{formatDate(incident.expiresAt)}
+            </p>
+          </div>
+        ))}
+      </details>
     </section>
   )
 }
-
-export default SimulationIncidentSection
