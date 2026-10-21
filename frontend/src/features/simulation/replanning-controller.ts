@@ -7,12 +7,8 @@ import {
   simulationErrorMessage,
 } from './routing-api.ts'
 
-import type {
-  Coordinate,
-  ReplanningStatus,
-  RouteResponse,
-  ToolExecution,
-} from '../../../../shared/contracts/routing.ts'
+import type { Coordinate } from '../../../../shared/contracts/geography'
+import type { ReplanningStatus, RouteResponse, ToolExecution } from '../../../../shared/contracts/routing.ts'
 
 // Solo necesitamos estos datos del robot.
 // El controlador no conoce React, el mapa ni la implementación de la animación.

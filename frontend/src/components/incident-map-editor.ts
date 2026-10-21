@@ -1,3 +1,4 @@
+import type { IncidentEffect } from '../../../shared/contracts/incidents'
 import * as L from 'leaflet'
 
 import {
@@ -7,16 +8,9 @@ import {
   world,
 } from '../../../shared/surfaces'
 
-import type {
-  Area,
-  Box,
-  Point,
-  WalkSurface,
-} from '../../../shared/surfaces'
+import type { Area, Box, Point, WalkSurface } from '../../../shared/contracts/surfaces'
 
-import type {
-  PedestrianSegment,
-} from '../utils/pedestrian-network'
+import type { PedestrianSegment } from '../../../shared/contracts/pedestrian'
 
 import {
   fetchJson,
@@ -42,7 +36,7 @@ export type MapPreview = {
 export type EditorState = {
   selection: IncidentSelection | null
   preview: MapPreview | null
-  effect: 'informational' | 'caution' | 'blockage'
+  effect: IncidentEffect
   disabled: boolean
   canConfirm: boolean
   message: string

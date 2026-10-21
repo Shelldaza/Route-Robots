@@ -1,12 +1,8 @@
 // Respuestas JSON y estados de la evaluación.
 // No dependen de React ni de Leaflet.
 
-export type Coordinate = [number, number]
-
-export type GeographicPoint = {
-  lat: number
-  lng: number
-}
+import type { Coordinate, GeographicPoint } from './geography'
+export type { Coordinate, GeographicPoint } from './geography'
 
 export type RouteResponse = {
   geometry: {

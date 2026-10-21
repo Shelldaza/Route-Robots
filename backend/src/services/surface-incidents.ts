@@ -50,9 +50,7 @@ import {
     lineHits,
 } from '../../../shared/surfaces';
 
-import type {
-    SurfaceImpact,
-} from '../../../shared/surfaces';
+import type { SurfaceImpact } from '../../../shared/contracts/surfaces'
 
 import {
     getSurfaceContext,

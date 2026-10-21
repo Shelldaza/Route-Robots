@@ -21,10 +21,8 @@ import {
   simulationErrorMessage as getErrorMessage,
 } from '../features/simulation/routing-api.ts'
 
-import type {
-  GeographicPoint as Point,
-  RouteResponse,
-} from '../../../shared/contracts/routing'
+import type { GeographicPoint as Point } from '../../../shared/contracts/geography'
+import type { RouteResponse } from '../../../shared/contracts/routing'
 
 import robotLogo from '../assets/robot-logo.jpg'
 import brandName from '../assets/routerobots-name.jpg'
@@ -33,16 +31,12 @@ import {
   fetchPedestrianNetwork,
 } from '../utils/pedestrian-network'
 
-import type {
-  PedestrianNetwork,
-} from '../utils/pedestrian-network'
+import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
 
 import SimulationIncidentSection from '../components/SimulationIncidentSection'
 
-import type {
-  BlockedArea,
-  Incident,
-} from '../components/SimulationIncidentSection'
+import type { Bounds as BlockedArea } from '../../../shared/contracts/geography'
+import type { IncidentDTO as Incident } from '../../../shared/contracts/incidents'
 
 import {
   getIncidentAppearance,

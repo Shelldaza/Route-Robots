@@ -6,11 +6,7 @@ import {
     local,
 } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Point,
-    WalkSurface,
-} from '../../../shared/surfaces';
+import type { Area, Point, WalkSurface } from '../../../shared/contracts/surfaces'
 
 import {
     distanceMeters,

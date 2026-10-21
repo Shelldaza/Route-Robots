@@ -1,6 +1,6 @@
 import type { BlockedArea } from './routing';
 
-type Coordinate = [number, number];
+import type { Coordinate } from '../../../shared/contracts/geography';
 
 function segmentIntersectsArea(
     start: Coordinate,

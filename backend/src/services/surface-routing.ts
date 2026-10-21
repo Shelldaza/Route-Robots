@@ -27,10 +27,7 @@ import type {
     SurfaceIncident,
 } from '../types/surfaces';
 
-import type {
-    Point,
-    WalkSurface,
-} from '../../../shared/surfaces';
+import type { Point, WalkSurface } from '../../../shared/contracts/surfaces'
 
 // El endpoint conserva este import, pero ahora recibe
 // restricciones explícitas.

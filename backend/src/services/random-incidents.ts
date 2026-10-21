@@ -21,9 +21,7 @@ import {
     pedestrianNetwork,
     queryCompactSegments,
 } from './pedestrian-network';
-import type {
-    PedestrianSegment,
-} from './pedestrian-network';
+import type { PedestrianSegment } from '../../../shared/contracts/pedestrian'
 
 type Point = [number, number];
 

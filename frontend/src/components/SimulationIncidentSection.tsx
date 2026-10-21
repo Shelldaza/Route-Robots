@@ -15,9 +15,7 @@ import {
   lineHits,
 } from '../../../shared/surfaces'
 
-import type {
-  SurfaceImpact,
-} from '../../../shared/surfaces'
+import type { SurfaceImpact } from '../../../shared/contracts/surfaces'
 
 import {
   getRouteBlockages,
@@ -27,48 +25,15 @@ import {
   isPedestrianImpact,
 } from '../utils/pedestrian-network'
 
+import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
+
 import type {
-  PedestrianImpact,
-  PedestrianNetwork,
-} from '../utils/pedestrian-network'
-
-export type BlockedArea = {
-  south: number
-  west: number
-  north: number
-  east: number
-}
-
-type IncidentEffect =
-  | 'informational'
-  | 'caution'
-  | 'blockage'
-
-export type Incident = {
-  id: string
-  simulationId: string
-  type: string
-  source:
-    | 'simulation'
-    | 'manual'
-    | 'ai_generated'
-  description: string
-  effect: IncidentEffect
-  reporterName: string | null
-  blockedArea: BlockedArea
-  pedestrianImpact?: PedestrianImpact | null
-  surfaceImpact?: SurfaceImpact | null
-  createdAt: string
-  startsAt: string
-  expiresAt: string
-}
-
-type Coordinate = [number, number]
-
-type IncidentStatus =
-  | 'scheduled'
-  | 'active'
-  | 'finished'
+  IncidentDTO as Incident,
+  IncidentEffect,
+  IncidentStatus,
+  IncidentType,
+} from '../../../shared/contracts/incidents'
+import type { Bounds as BlockedArea, Coordinate } from '../../../shared/contracts/geography'
 
 type BlockageRecord = {
   id: string
@@ -104,7 +69,7 @@ type Props = {
   ) => void
 }
 
-const INCIDENT_LABELS: Record<string, string> = {
+const INCIDENT_LABELS: Record<IncidentType | 'blockage', string> = {
   blockage: 'Bloqueo',
   temporary_obstacle: 'Obstáculo temporal',
   temporary_closure: 'Cierre temporal',

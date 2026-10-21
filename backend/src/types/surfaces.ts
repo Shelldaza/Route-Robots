@@ -2,10 +2,7 @@ import type {
     Incident,
 } from './incidents';
 
-import type {
-    SurfaceImpact,
-    Box,
-} from '../../../shared/surfaces';
+import type { SurfaceImpact, Box } from '../../../shared/contracts/surfaces'
 
 export type SurfaceIncident = Incident & {
     surfaceImpact?: SurfaceImpact | null;

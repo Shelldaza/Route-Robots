@@ -6,15 +6,9 @@ import {
     world,
 } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Point,
-    WalkSurface,
-} from '../../../shared/surfaces';
+import type { Area, Point, WalkSurface } from '../../../shared/contracts/surfaces'
 
-import type {
-    PedestrianSegment,
-} from './pedestrian-network';
+import type { PedestrianSegment } from '../../../shared/contracts/pedestrian'
 
 import {
     queryPedestrianSegments,

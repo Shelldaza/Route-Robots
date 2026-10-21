@@ -21,9 +21,7 @@ import {
     encodeCompactNetwork,
 } from '../services/pedestrian-compact';
 
-import type {
-    PedestrianNetwork,
-} from '../services/pedestrian-network';
+import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
 
 async function main() {
     const file = join(

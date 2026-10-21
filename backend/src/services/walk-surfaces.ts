@@ -2,11 +2,7 @@ import { z } from 'zod';
 import { RoutingError } from './routing';
 import { isArea } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Bounds,
-    WalkSurface,
-} from '../../../shared/surfaces';
+import type { Area, Bounds, WalkSurface } from '../../../shared/contracts/surfaces'
 
 export const SURFACE_SOURCES = {
     current:

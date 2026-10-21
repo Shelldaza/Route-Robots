@@ -35,12 +35,7 @@ import {
     world,
 } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Point,
-    SurfaceImpact,
-    WalkSurface,
-} from '../../../shared/surfaces';
+import type { Area, Point, SurfaceImpact, WalkSurface } from '../../../shared/contracts/surfaces'
 
 import { routeIntersectsBlockedAreas } from './route-geometry';
 

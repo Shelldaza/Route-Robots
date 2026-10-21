@@ -1,12 +1,11 @@
+import type { Coordinate } from '../../../shared/contracts/geography'
 import {
   useEffect,
   useRef,
   useState,
 } from 'react'
 
-import type {
-  Incident,
-} from './SimulationIncidentSection'
+import type { IncidentDTO as Incident } from '../../../shared/contracts/incidents'
 
 import {
   getIncidentAppearance,
@@ -20,7 +19,7 @@ type Props = {
   simulationId: string
   networkVersion: string
   scenarioTime: string
-  coordinates: [number, number][]
+  coordinates: Coordinate[]
   disabled: boolean
   validateIncident: (
     value: unknown,

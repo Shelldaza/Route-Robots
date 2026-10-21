@@ -1,11 +1,11 @@
 import type { z } from 'zod';
 
 import type {
-    blockedAreaSchema,
     routeRequestSchema,
 } from '../schemas/routing';
 
-export type BlockedArea = z.infer<typeof blockedAreaSchema>;
+import type { Coordinate } from '../../../shared/contracts/geography';
+export type { Bounds as BlockedArea } from '../../../shared/contracts/geography';
 
 export type RouteRequest = z.infer<typeof routeRequestSchema>;
 
@@ -19,7 +19,7 @@ export type RouteRequest = z.infer<typeof routeRequestSchema>;
 export type CalculatedRoute = {
     geometry: {
         type: 'LineString';
-        coordinates: [number, number][];
+        coordinates: Coordinate[];
     };
     distanceMeters: number;
     durationSeconds: number;

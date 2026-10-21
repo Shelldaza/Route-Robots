@@ -2,18 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-import type {
-  Coordinate,
-  RouteResponse,
-} from '../../../shared/contracts/routing'
+import type { Coordinate } from '../../../shared/contracts/geography'
+import type { RouteResponse } from '../../../shared/contracts/routing'
 
-import type {
-  Incident,
-} from '../components/SimulationIncidentSection'
+import type { IncidentDTO as Incident } from '../../../shared/contracts/incidents'
 
-import type {
-  PedestrianNetwork,
-} from '../utils/pedestrian-network'
+import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
 
 import {
   drawPedestrianNetwork,

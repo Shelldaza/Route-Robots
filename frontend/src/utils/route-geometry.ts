@@ -1,11 +1,5 @@
-export type Coordinate = [number, number]
-
-export type BlockedArea = {
-  south: number
-  west: number
-  north: number
-  east: number
-}
+import type { Coordinate, BlockedArea } from '../../../shared/contracts/geography'
+export type { Coordinate, BlockedArea } from '../../../shared/contracts/geography'
 
 type RouteIncident = {
   effect: string

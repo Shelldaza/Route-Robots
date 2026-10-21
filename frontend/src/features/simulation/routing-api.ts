@@ -5,12 +5,8 @@ import {
   isRouteResponse,
 } from './routing-validation.ts'
 
-import type {
-  GeographicPoint,
-  ReplanningRequest,
-  ReplanningResult,
-  RouteResponse,
-} from '../../../../shared/contracts/routing.ts'
+import type { GeographicPoint } from '../../../../shared/contracts/geography'
+import type { ReplanningRequest, ReplanningResult, RouteResponse } from '../../../../shared/contracts/routing.ts'
 
 // Solicita la ruta inicial y comprueba que pertenezca
 // a la misma versión de red que eligió el usuario.

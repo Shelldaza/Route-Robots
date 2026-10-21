@@ -1,20 +1,11 @@
 import { endianness } from 'node:os';
-import type {
-    PedestrianNetwork,
-    PedestrianSegment,
-} from './pedestrian-network';
+import type { PedestrianNetwork, PedestrianSegment } from '../../../shared/contracts/pedestrian'
 import {
     routeIntersectsBlockedAreas,
 } from './route-geometry';
 
-type Point = [number, number];
-
-export type Bounds = {
-    south: number;
-    west: number;
-    north: number;
-    east: number;
-};
+import type { Coordinate as Point, Bounds } from '../../../shared/contracts/geography';
+export type { Bounds } from '../../../shared/contracts/geography';
 
 type Strings = {
     bytes: Uint8Array;

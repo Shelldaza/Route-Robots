@@ -1,7 +1,8 @@
 // Regla compartida para construir el origen y destino de una replanificación.
 // Las coordenadas de la ruta usan el orden GeoJSON: [longitud, latitud].
 
-export type RoutePoint = [number, number]
+import type { Coordinate as RoutePoint } from '../contracts/geography'
+export type { Coordinate as RoutePoint } from '../contracts/geography'
 
 function validPoint(
   value: unknown,
