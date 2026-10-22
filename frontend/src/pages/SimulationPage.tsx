@@ -17,30 +17,21 @@ import {
 } from '../hooks/useReplanning'
 
 import {
+  useRobotSimulation,
+} from '../hooks/useRobotSimulation'
+
+import {
+  useScenarioClock,
+} from '../hooks/useScenarioClock'
+
+import {
   requestInitialRoute,
-  simulationErrorMessage as getErrorMessage,
+  simulationErrorMessage,
 } from '../features/simulation/routing-api.ts'
-
-import type { GeographicPoint as Point } from '../../../shared/contracts/geography'
-import type { RouteResponse } from '../../../shared/contracts/routing'
-
-import robotLogo from '../assets/robot-logo.jpg'
-import brandName from '../assets/routerobots-name.jpg'
 
 import {
   fetchPedestrianNetwork,
 } from '../utils/pedestrian-network'
-
-import type { PedestrianNetwork } from '../../../shared/contracts/pedestrian'
-
-import SimulationIncidentSection from '../components/SimulationIncidentSection'
-
-import type { Bounds as BlockedArea } from '../../../shared/contracts/geography'
-import type { IncidentDTO as Incident } from '../../../shared/contracts/incidents'
-
-import {
-  getIncidentAppearance,
-} from '../utils/incident-icons'
 
 import {
   calculateRouteEstimates,
@@ -51,13 +42,34 @@ import type {
   RobotOperatingProfile,
 } from '../utils/route-estimates'
 
-import {
-  useRobotSimulation,
-} from '../hooks/useRobotSimulation'
+import type {
+  GeographicPoint,
+  Bounds,
+} from '../../../shared/contracts/geography'
+
+import type {
+  RouteResponse,
+} from '../../../shared/contracts/routing'
+
+import type {
+  PedestrianNetwork,
+} from '../../../shared/contracts/pedestrian'
+
+import type {
+  IncidentDTO as Incident,
+} from '../../../shared/contracts/incidents'
+
+import SimulationIncidentSection from '../components/SimulationIncidentSection'
 
 import {
-  useScenarioClock,
-} from '../hooks/useScenarioClock'
+  SimulationHeader,
+  ScenarioControls,
+  RobotControls,
+  MapLegend,
+  RouteMetrics,
+  RouteEvaluation,
+  SimulationActivity,
+} from '../components/simulation/SimulationPanels'
 
 import './DemoPage.css'
 import './SimulationPage.css'
@@ -68,11 +80,13 @@ type DeliveryDraft = {
     id: string
     name: string
   }
-  origin: Point
-  destination: Point
+  origin: GeographicPoint
+  destination: GeographicPoint
 }
 
-function isPoint(value: unknown): value is Point {
+function isPoint(
+  value: unknown,
+): value is GeographicPoint {
   if (!value || typeof value !== 'object') return false
 
   const point = value as Record<string, unknown>
@@ -80,17 +94,14 @@ function isPoint(value: unknown): value is Point {
   return (
     typeof point.lat === 'number'
     && Number.isFinite(point.lat)
-    && point.lat >= -90
-    && point.lat <= 90
+    && Math.abs(point.lat) <= 90
     && typeof point.lng === 'number'
     && Number.isFinite(point.lng)
-    && point.lng >= -180
-    && point.lng <= 180
+    && Math.abs(point.lng) <= 180
   )
 }
 
-// El estado de navegación puede faltar al abrir la URL directamente.
-// Validarlo evita iniciar una entrega con datos incompletos.
+// Abrir directamente la URL no debe iniciar una entrega incompleta.
 function isDeliveryDraft(
   value: unknown,
 ): value is DeliveryDraft {
@@ -119,22 +130,13 @@ function isDeliveryDraft(
   )
 }
 
-function formatNumber(value: number): string {
-  return value.toLocaleString('es-AR', {
-    maximumFractionDigits: 1,
-  })
-}
-
-// La pantalla coordina los controles y las métricas de la entrega.
-// useReplanning gestiona los desvíos y useSimulationMap representa el mapa.
+// La página conserva la coordinación entre ruta, reloj, robot e incidentes.
+// Los paneles reciben datos y acciones sin duplicar estas decisiones.
 function SimulationContent({
   navigationState,
 }: {
   navigationState: unknown
 }) {
-  const [incidentDraftOpen, setIncidentDraftOpen] =
-    useState(false)
-
   const draft = isDeliveryDraft(navigationState)
     ? navigationState
     : null
@@ -143,22 +145,15 @@ function SimulationContent({
     () => crypto.randomUUID(),
   )
 
-  const [route, setRoute] =
-    useState<RouteResponse | null>(null)
-
-  const [blockedAreas, setBlockedAreas] =
-    useState<BlockedArea[]>([])
-
-  const [activeIncidents, setActiveIncidents] =
-    useState<Incident[]>([])
-
+  const [route, setRoute] = useState<RouteResponse | null>(null)
+  const [blockedAreas, setBlockedAreas] = useState<Bounds[]>([])
+  const [activeIncidents, setActiveIncidents] = useState<Incident[]>([])
+  const [network, setNetwork] = useState<PedestrianNetwork | null>(null)
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const [incidentSaving, setIncidentSaving] = useState(false)
   const [selectingLocation, setSelectingLocation] = useState(false)
-
-  const [network, setNetwork] =
-    useState<PedestrianNetwork | null>(null)
+  const [incidentDraftOpen, setIncidentDraftOpen] = useState(false)
 
   useEffect(() => {
     if (!draft?.networkVersion) return
@@ -180,14 +175,12 @@ function SimulationContent({
         }
       })
       .catch(() => {
-        // El formulario muestra el estado de red no disponible.
+        // El editor requiere una red compatible para habilitarse.
       })
 
     return () => controller.abort()
   }, [draft?.networkVersion])
 
-  // El escenario puede avanzar con el robot detenido.
-  // El tiempo del robot mide únicamente el desplazamiento.
   const clock = useScenarioClock()
 
   const motion = useRobotSimulation(
@@ -199,7 +192,6 @@ function SimulationContent({
     getSnapshot,
   } = motion
 
-  // El controlador reúne la petición, los estados y la aplicación del desvío.
   const replanning = useReplanning({
     simulationId,
     route,
@@ -213,10 +205,6 @@ function SimulationContent({
   const {
     alternative,
     status: replanningStatus,
-    error: replanningError,
-    explanation,
-    toolCalls,
-    comparisonDistance,
     request: requestReplanning,
     isPending: isReplanningPending,
   } = replanning
@@ -224,26 +212,24 @@ function SimulationContent({
   const hasBlockages = blockedAreas.length > 0
   const displayedRoute = alternative ?? route
 
-  const estimates =
-    draft && displayedRoute
-      ? calculateRouteEstimates(
-          displayedRoute.distanceMeters,
-          draft.robot,
-        )
-      : null
+  const estimates = draft && displayedRoute
+    ? calculateRouteEstimates(
+      displayedRoute.distanceMeters,
+      draft.robot,
+    )
+    : null
 
   const traveledEstimates = draft
     ? calculateRouteEstimates(
-        motion.traveledMeters,
-        draft.robot,
-      )
+      motion.traveledMeters,
+      draft.robot,
+    )
     : null
 
   const evaluationBusy =
     incidentSaving
     || replanningStatus === 'loading'
 
-  // Editar un incidente mantiene estable la posición y la hora.
   const controlsLocked =
     evaluationBusy
     || selectingLocation
@@ -260,18 +246,18 @@ function SimulationContent({
     controlsLocked
     || motion.status === 'running'
 
-  // La ruta inicial tiene su propio ciclo de carga y cancelación.
   useEffect(() => {
     if (!draft) return
 
     const {
       origin,
       destination,
+      networkVersion,
     } = draft
 
     const controller = new AbortController()
 
-    async function fetchInitialRoute() {
+    async function load() {
       setRoute(null)
       setError('')
 
@@ -280,7 +266,7 @@ function SimulationContent({
           {
             origin,
             destination,
-            networkVersion: draft?.networkVersion,
+            networkVersion,
           },
           controller.signal,
         )
@@ -291,17 +277,17 @@ function SimulationContent({
         }
       } catch (caught) {
         if (!controller.signal.aborted) {
-          setError(getErrorMessage(caught))
+          setError(simulationErrorMessage(caught))
         }
       }
     }
 
-    void fetchInitialRoute()
+    void load()
 
     return () => controller.abort()
   }, [draft, retryKey, loadRoute])
 
-  // El editor recibe la misma instancia del mapa durante toda la entrega.
+  // El mapa conserva su instancia al cargar una alternativa.
   const {
     containerRef,
     map: incidentMap,
@@ -320,12 +306,7 @@ function SimulationContent({
   }
 
   function selectIncidentLocation() {
-    if (
-      evaluationBusy
-      || isReplanningPending()
-    ) {
-      return
-    }
+    if (evaluationBusy || isReplanningPending()) return
 
     pauseScenarioAndRobot()
     setSelectingLocation(true)
@@ -334,8 +315,6 @@ function SimulationContent({
 
   function cancelIncidentSelection() {
     setSelectingLocation(false)
-
-    // El usuario decide cuándo reanudar el recorrido.
   }
 
   function changeSimulationSpeed(value: number) {
@@ -344,28 +323,17 @@ function SimulationContent({
   }
 
   function toggleScenarioClock() {
-    if (
-      controlsLocked
-      || isReplanningPending()
-    ) {
-      return
-    }
+    if (controlsLocked || isReplanningPending()) return
 
     if (clock.running) {
       pauseScenarioAndRobot()
     } else {
-      // El escenario puede avanzar sin mover al robot.
       clock.start()
     }
   }
 
   function waitInScenario(seconds: number) {
-    if (
-      waitingDisabled
-      || isReplanningPending()
-    ) {
-      return
-    }
+    if (waitingDisabled || isReplanningPending()) return
 
     motion.pause()
     clock.advanceBy(seconds)
@@ -385,13 +353,12 @@ function SimulationContent({
     pauseScenarioAndRobot()
     motion.advanceBy(120)
 
-    // El escenario avanza el intervalo completo aunque
-    // el robot llegue antes al destino.
+    // El intervalo transcurre completo aunque el robot llegue antes.
     clock.advanceBy(120)
   }
 
   function handleBlockedAreasChange(
-    areas: BlockedArea[],
+    areas: Bounds[],
     options: {
       requestReplanning: boolean
     },
@@ -407,9 +374,7 @@ function SimulationContent({
       return
     }
 
-    // Si ya no hay bloqueos sobre el tramo pendiente,
-    // se permite continuar aunque la evaluación anterior haya fallado.
-    if (areas.length === 0) {
+    if (!areas.length) {
       replanning.clearError()
     }
   }
@@ -424,7 +389,7 @@ function SimulationContent({
 
   function retryInitialRoute() {
     setError('')
-    setRetryKey((current) => current + 1)
+    setRetryKey((key) => key + 1)
   }
 
   function toggleMovement() {
@@ -462,60 +427,9 @@ function SimulationContent({
                   ? 'Recorrido pausado'
                   : 'Listo para iniciar'
 
-  const evaluationTitle =
-    replanningStatus === 'loading'
-      ? 'Buscando una alternativa'
-      : replanningStatus === 'ready'
-        ? 'Alternativa disponible'
-        : replanningStatus === 'unavailable'
-          ? 'Sin alternativa validada'
-          : replanningStatus === 'error'
-            ? 'No se completó la evaluación'
-            : 'Evaluación pendiente'
-
-  const distanceDifference =
-    comparisonDistance !== null && alternative
-      ? alternative.distanceMeters - comparisonDistance
-      : null
-
   return (
     <div className="demo-page simulation-page">
-      <header className="demo-header">
-        <div className="demo-nav-wrap">
-          <Link
-            className="demo-brand"
-            to="/"
-            aria-label="RouteRobots — Inicio"
-          >
-            <img
-              className="demo-brand-robot"
-              src={robotLogo}
-              alt=""
-            />
-
-            <img
-              className="demo-brand-name"
-              src={brandName}
-              alt=""
-            />
-          </Link>
-
-          <nav
-            className="demo-nav"
-            aria-label="Principal"
-          >
-            <Link to="/">Plataforma</Link>
-
-            <Link
-              className="demo-nav-button"
-              to="/demo"
-            >
-              Configurar otra entrega
-              <span aria-hidden="true">↗</span>
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <SimulationHeader />
 
       <main className="simulation-workspace">
         {!draft ? (
@@ -556,8 +470,7 @@ function SimulationContent({
               </>
             ) : (
               <p role="status">
-                Calculando el recorrido para{' '}
-                {draft.robot.name}…
+                Calculando el recorrido para {draft.robot.name}…
               </p>
             )}
 
@@ -576,8 +489,7 @@ function SimulationContent({
                 <h1>El recorrido y sus decisiones</h1>
 
                 <p>
-                  Robot:{' '}
-                  <strong>{draft.robot.name}</strong>
+                  Robot: <strong>{draft.robot.name}</strong>
                   {' · '}Washington D. C.
                 </p>
               </div>
@@ -590,199 +502,43 @@ function SimulationContent({
               </span>
             </div>
 
-            <div className="simulation-toolbar">
-              <div className="simulation-clock">
-                <span>Fecha y hora del escenario</span>
+            <ScenarioControls
+              clock={clock}
+              controlsLocked={controlsLocked}
+              waitingDisabled={waitingDisabled}
+              toggleScenarioClock={toggleScenarioClock}
+              changeSimulationSpeed={changeSimulationSpeed}
+              waitInScenario={waitInScenario}
+            />
 
-                <strong>
-                  {new Date(
-                    clock.nowMs,
-                  ).toLocaleString('es-AR', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: false,
-                  })}
-                </strong>
-              </div>
-
-              <div className="simulation-controls">
-                <button
-                  type="button"
-                  onClick={toggleScenarioClock}
-                  disabled={controlsLocked}
-                >
-                  {clock.running
-                    ? 'Pausar escenario'
-                    : 'Avanzar escenario'}
-                </button>
-
-                <label htmlFor="scenario-speed">
-                  Velocidad del reloj
-
-                  <select
-                    id="scenario-speed"
-                    value={clock.multiplier}
-                    onChange={(event) =>
-                      changeSimulationSpeed(
-                        Number(event.target.value),
-                      )
-                    }
-                    disabled={controlsLocked}
-                  >
-                    <option value="1">×1</option>
-                    <option value="10">×10</option>
-                    <option value="60">×60</option>
-                  </select>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => waitInScenario(120)}
-                  disabled={waitingDisabled}
-                >
-                  Esperar 2 minutos
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    waitInScenario(24 * 60 * 60)
-                  }
-                  disabled={waitingDisabled}
-                >
-                  Esperar 1 día
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    waitInScenario(11 * 24 * 60 * 60)
-                  }
-                  disabled={waitingDisabled}
-                >
-                  Esperar 11 días
-                </button>
-              </div>
-            </div>
-
-            <div className="simulation-toolbar">
-              <div className="simulation-clock">
-                <span>Tiempo simulado de marcha</span>
-
-                <strong>
-                  {formatNumber(
-                    motion.elapsedSeconds / 60,
-                  )}{' '}
-                  min
-                </strong>
-              </div>
-
-              <div className="simulation-controls">
-                <button
-                  type="button"
-                  onClick={toggleMovement}
-                  disabled={
-                    movementBlocked
-                    || motion.status === 'completed'
-                    || motion.status === 'empty'
-                  }
-                >
-                  {motion.status === 'completed'
-                    ? 'Recorrido finalizado'
-                    : motion.status === 'running'
-                      ? 'Pausar recorrido'
-                      : motion.elapsedSeconds > 0
-                        ? 'Reanudar recorrido'
-                        : 'Iniciar recorrido'}
-                </button>
-
-                <label htmlFor="simulation-speed">
-                  Velocidad de simulación
-
-                  <select
-                    id="simulation-speed"
-                    value={motion.multiplier}
-                    onChange={(event) =>
-                      changeSimulationSpeed(
-                        Number(event.target.value),
-                      )
-                    }
-                    disabled={controlsLocked}
-                  >
-                    <option value="1">×1</option>
-                    <option value="10">×10</option>
-                    <option value="60">×60</option>
-                  </select>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={advanceRobotByTwoMinutes}
-                  disabled={
-                    movementBlocked
-                    || motion.status === 'running'
-                    || motion.status === 'completed'
-                    || motion.status === 'empty'
-                  }
-                >
-                  Recorrer 2 minutos
-                </button>
-              </div>
-            </div>
-
-            <p className="simulation-progress">
-              Recorrido:{' '}
-
-              <strong>
-                {formatNumber(motion.traveledMeters)} m
-              </strong>
-
-              {' · '}Pendiente:{' '}
-
-              <strong>
-                {formatNumber(motion.remainingMeters)} m
-              </strong>
-
-              {traveledEstimates && (
-                <>
-                  {' · '}Consumo acumulado estimado:{' '}
-
-                  <strong>
-                    {formatNumber(
-                      traveledEstimates.consumptionWh,
-                    )}{' '}
-                    Wh
-                  </strong>
-                </>
-              )}
-
-              {motion.status === 'completed'
-                && ' · Destino alcanzado'}
-            </p>
+            <RobotControls
+              motion={motion}
+              controlsLocked={controlsLocked}
+              movementBlocked={movementBlocked}
+              traveledEstimates={traveledEstimates}
+              toggleMovement={toggleMovement}
+              changeSimulationSpeed={changeSimulationSpeed}
+              advanceRobotByTwoMinutes={advanceRobotByTwoMinutes}
+            />
 
             {route.networkVersion && (
               <p className="simulation-notice">
                 Sandbox peatonal: los recorridos usan la red fija
                 de veredas y cruces de OpenStreetMap.
-                Las líneas peatonales se muestran al acercar el mapa.
-                Las superficies y los controles aparecen al ubicar
-                un incidente. Los reportes se colorean según su efecto.
-                La cartografía no certifica la accesibilidad física
-                del robot.
+                Las líneas peatonales se muestran al acercar
+                el mapa. Las superficies y los controles aparecen
+                al ubicar un incidente. Los reportes se colorean
+                según su efecto. La cartografía no certifica
+                la accesibilidad física del robot.
               </p>
             )}
 
             <p className="simulation-notice">
-              El reloj del escenario puede avanzar con el
-              robot detenido o después de llegar al destino.
-              Las esperas no suman distancia ni consumo de
-              marcha. Al registrar un bloqueo se pausan el
-              robot y el reloj para evaluar un desvío desde
-              su posición actual.
+              El reloj del escenario puede avanzar con el robot
+              detenido o después de llegar al destino.
+              Las esperas no suman distancia ni consumo de marcha.
+              Al registrar un bloqueo se pausan el robot y el reloj
+              para evaluar un desvío desde su posición actual.
             </p>
 
             <div className="simulation-grid">
@@ -808,376 +564,41 @@ function SimulationContent({
                   aria-label="Mapa del robot, el recorrido y los incidentes"
                 />
 
-                <div
-                  className="simulation-legend"
-                  aria-label="Referencias del mapa"
-                >
-                  {!alternative
-                    && motion.traveledMeters === 0
-                    && motion.status !== 'completed' && (
-                      <span>
-                        <i
-                          className="legend-origin"
-                          aria-hidden="true"
-                        />
-                        Origen
-                      </span>
-                    )}
+                <MapLegend
+                  motion={motion}
+                  alternative={Boolean(alternative)}
+                  activeIncidents={activeIncidents}
+                />
 
-                  <span>
-                    <i
-                      className="legend-destination"
-                      aria-hidden="true"
-                    />
-                    Destino
-                  </span>
-
-                  <span>
-                    <img
-                      className="legend-blockage-image"
-                      src={robotLogo}
-                      alt=""
-                    />
-                    Robot
-                  </span>
-
-                  {motion.status !== 'completed' && (
-                    <span>
-                      <i
-                        className="legend-route"
-                        aria-hidden="true"
-                      />
-
-                      {alternative
-                        ? 'Desvío pendiente'
-                        : 'Recorrido pendiente'}
-                    </span>
-                  )}
-
-                  {[
-                    ...new Set(
-                      activeIncidents.map(
-                        (incident) => incident.type,
-                      ),
-                    ),
-                  ].map((type) => {
-                    const appearance =
-                      getIncidentAppearance(type)
-
-                    return (
-                      <span key={type}>
-                        <img
-                          className="legend-blockage-image"
-                          src={appearance.iconUrl}
-                          alt=""
-                        />
-                        {appearance.label}
-                      </span>
-                    )
-                  })}
-                </div>
-
-                <dl className="simulation-metrics">
-                  <div>
-                    <dt>
-                      {alternative
-                        ? 'Distancia del desvío'
-                        : 'Distancia original'}
-                    </dt>
-
-                    <dd>
-                      {formatNumber(
-                        displayedRoute.distanceMeters,
-                      )}{' '}
-                      m
-                    </dd>
-                  </div>
-
-                  <div>
-                    <dt>
-                      {alternative
-                        ? 'Tiempo estimado del desvío'
-                        : 'Tiempo estimado del robot'}
-                    </dt>
-
-                    <dd>
-                      {estimates
-                        ? `${formatNumber(
-                            estimates.durationSeconds / 60,
-                          )} min`
-                        : '—'}
-                    </dd>
-                  </div>
-
-                  <div>
-                    <dt>
-                      {alternative
-                        ? 'Consumo estimado del desvío'
-                        : 'Consumo estimado del recorrido'}
-                    </dt>
-
-                    <dd>
-                      {estimates
-                        ? `${formatNumber(
-                            estimates.consumptionWh,
-                          )} Wh`
-                        : '—'}
-                    </dd>
-                  </div>
-
-                  <div>
-                    <dt>
-                      Capacidad de batería requerida
-                    </dt>
-
-                    <dd>
-                      {estimates
-                        ? `${formatNumber(
-                            estimates.requiredCapacityPercent,
-                          )} %`
-                        : '—'}
-                    </dd>
-                  </div>
-                </dl>
-
-                <p className="simulation-estimates-note">
-                  Estimaciones a velocidad constante y
-                  consumo de referencia, sin pendientes,
-                  clima ni consumo durante las esperas.
-
-                  {alternative
-                    ? ' Las métricas corresponden al desvío desde el punto donde se pausó el robot.'
-                    : ' Las métricas corresponden al recorrido original completo.'}
-
-                  {' '}El porcentaje expresa capacidad
-                  requerida, no batería restante.
-                </p>
-
-                {estimates
-                  && estimates.requiredCapacityPercent > 100 && (
-                    <p
-                      className="simulation-capacity-warning"
-                      role="status"
-                    >
-                      El consumo estimado del recorrido
-                      mostrado supera la capacidad nominal
-                      de batería del robot.
-                    </p>
-                  )}
+                <RouteMetrics
+                  alternative={Boolean(alternative)}
+                  distanceMeters={displayedRoute.distanceMeters}
+                  estimates={estimates}
+                />
               </section>
 
               <aside className="simulation-side">
-                <section
-                  className="simulation-card"
-                  aria-busy={
-                    replanningStatus === 'loading'
-                  }
-                >
-                  <p className="simulation-eyebrow">
-                    EVALUACIÓN DEL RECORRIDO
-                  </p>
+                <RouteEvaluation
+                  replanning={replanning}
+                  motion={motion}
+                  robot={draft.robot}
+                  traveledEstimates={traveledEstimates}
+                  clock={clock}
+                  blockedCount={blockedAreas.length}
+                  incidentSaving={incidentSaving}
+                />
 
-                  <h2>{evaluationTitle}</h2>
-
-                  {replanningStatus === 'loading' && (
-                    <p role="status">
-                      El robot y el reloj están pausados.
-                      La IA está consultando los incidentes
-                      y evaluando un desvío mediante MCP.
-                    </p>
-                  )}
-
-                  {replanningStatus === 'idle' && (
-                    <p>
-                      Podés iniciar el recorrido y generar
-                      un bloqueo por delante del robot para
-                      evaluar un desvío.
-                    </p>
-                  )}
-
-                  {explanation && (
-                    <>
-                      <p className="simulation-ai-explanation">
-                        {explanation}
-                      </p>
-
-                      <p className="simulation-estimates-note">
-                        La duración del proveedor corresponde
-                        al perfil peatonal. Las métricas del
-                        mapa utilizan la velocidad operativa
-                        del robot.
-                      </p>
-                    </>
-                  )}
-
-                  {replanningStatus === 'ready'
-                    && motion.status === 'paused' && (
-                      <p className="simulation-route-comparison">
-                        El desvío está cargado. Pulsá
-                        Reanudar recorrido para continuar;
-                        si todavía no habías iniciado,
-                        pulsá Iniciar recorrido.
-                      </p>
-                    )}
-
-                  {replanningError && (
-                    <p
-                      className="simulation-incident-error"
-                      role="alert"
-                    >
-                      {replanningError}
-                    </p>
-                  )}
-
-                  {distanceDifference !== null && (
-                    <p className="simulation-route-comparison">
-                      Diferencia respecto del recorrido
-                      pendiente:{' '}
-
-                      <strong>
-                        {distanceDifference > 0 ? '+' : ''}
-                        {formatNumber(distanceDifference)} m
-                      </strong>.
-                    </p>
-                  )}
-
-                  {(
-                    replanningStatus === 'error'
-                    || replanningStatus === 'unavailable'
-                  ) && (
-                    <button
-                      className="simulation-retry"
-                      type="button"
-                      onClick={() =>
-                        void requestReplanning()
-                      }
-                      disabled={incidentSaving}
-                    >
-                      Reintentar evaluación
-                    </button>
-                  )}
-
-                  <dl className="simulation-checks">
-                    <div>
-                      <dt>Robot</dt>
-                      <dd>{draft.robot.name}</dd>
-                    </div>
-
-                    <div>
-                      <dt>Velocidad operativa</dt>
-
-                      <dd>
-                        {formatNumber(
-                          draft.robot.speedKmh,
-                        )}{' '}
-                        km/h
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        Consumo acumulado estimado
-                      </dt>
-
-                      <dd>
-                        {traveledEstimates
-                          ? `${formatNumber(
-                              traveledEstimates.consumptionWh,
-                            )} Wh`
-                          : 'No disponible'}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>Reloj del escenario</dt>
-
-                      <dd>
-                        {clock.running
-                          ? 'Avanzando'
-                          : 'Pausado'}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>Pendientes</dt>
-                      <dd>Sin verificar</dd>
-                    </div>
-
-                    <div>
-                      <dt>Bloqueos sobre el recorrido</dt>
-                      <dd>{blockedAreas.length}</dd>
-                    </div>
-
-                    <div>
-                      <dt>Alternativa</dt>
-
-                      <dd>
-                        {alternative
-                          ? 'Cargada en el escenario'
-                          : 'Sin cargar'}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
-
-                <section className="simulation-card">
-                  <h2>Actividad del sistema</h2>
-
-                  <ol className="simulation-activity">
-                    <li>
-                      Se recibió el robot{' '}
-                      {draft.robot.name} junto con el
-                      origen y el destino.
-                    </li>
-
-                    <li>
-                      Se calculó la ruta original.
-                    </li>
-
-                    {hasBlockages && (
-                      <li>
-                        Se registró el bloqueo y se
-                        pausó el recorrido.
-                      </li>
-                    )}
-
-                    {toolCalls.map((tool, index) => (
-                      <li
-                        key={`${tool.name}-${index}`}
-                      >
-                        {tool.name === 'consultar_incidentes'
-                          ? 'Consulta de incidentes'
-                          : tool.name === 'calcular_desvio'
-                            ? 'Cálculo del desvío'
-                            : 'Ejecución de herramienta'}
-                        :{' '}
-                        {tool.success
-                          ? 'completado'
-                          : 'sin éxito'}.
-                      </li>
-                    ))}
-
-                    {alternative && (
-                      <li>
-                        Se cargó una alternativa desde
-                        la posición donde se pausó el
-                        robot.
-                      </li>
-                    )}
-
-                    {motion.status === 'completed' && (
-                      <li>
-                        El robot alcanzó el destino.
-                        El reloj del escenario puede
-                        continuar avanzando.
-                      </li>
-                    )}
-                  </ol>
-                </section>
+                <SimulationActivity
+                  robotName={draft.robot.name}
+                  hasBlockages={hasBlockages}
+                  replanning={replanning}
+                  motion={motion}
+                />
               </aside>
             </div>
 
             <SimulationIncidentSection
+              robotId={draft.robot.id}
               simulationId={simulationId}
               scenarioTime={clock.scenarioTime}
               getScenarioTime={clock.getScenarioTime}
@@ -1207,7 +628,7 @@ function SimulationContent({
   )
 }
 
-function SimulationPage() {
+export default function SimulationPage() {
   const location = useLocation()
 
   return (
@@ -1217,5 +638,3 @@ function SimulationPage() {
     />
   )
 }
-
-export default SimulationPage
