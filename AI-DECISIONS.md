@@ -7,14 +7,12 @@
 - **Código / Arquitectura generada:** La IA propuso un stack distribuido gratuito utilizando Vercel para el Frontend (PaaS), Render para el Backend Node.js, y Neon.tech para persistencia PostgreSQL Serverless. Sugirió el uso de Github Actions para CI/CD y Sentry para observabilidad.
 - **Validación y Corrección Humana:** Se validó la viabilidad de la propuesta frente a las restricciones del Trabajo Práctico ("Libertad Tecnológica Justificada"). Se acepta la arquitectura propuesta ya que Vercel y Render cumplen con la premisa de "Servicios Gestionados" minimizando la carga operativa. Se asume el riesgo de "cold starts" en la capa gratuita de Render (backend), considerándolo aceptable para la etapa de MVP.
 
-
 ## Resolución de Bug: Incompatibilidad de entorno de ejecución TypeScript
 
 - **Problema abordado:** Error crítico al levantar el servidor de desarrollo (`TypeError: Cannot read properties of undefined (reading 'fileExists')`). Se detectó que el motor de ejecución estaba fallando en Node.js v22.18.0.
 - **Prompt / Herramienta utilizada:** Se le pasó el log de error completo a la IA (Gemini) indicando la versión exacta de Node.js utilizada en el entorno local.
 - **Código / Arquitectura generada:** La IA identificó un bug de compatibilidad conocido entre dependencias modernas y la librería tradicional `ts-node`. Recomendó desinstalar `ts-node` y reemplazarlo por `tsx` (TypeScript Execute), actualizando el script `dev` en el `package.json`.
 - **Validación y Corrección Humana:** Se investigó la sugerencia de la IA y se confirmó que `tsx` es el estándar actual de la industria para versiones recientes de Node.js (v20+). Se aplicó el cambio, lo que resolvió el error inmediatamente.
-
 
 ## Regularización del registro de uso de IA
 
@@ -25,3 +23,13 @@
 **Acción correctiva:** Mi intención no es ocultarlo ni recostruir falsamente documentación, si bien tengo los prompts y demás, no tengo intención de reconstruirlo, puesto que a lo largo de la carrera se me enseño a ser responsable y tener criterio propio, así que ahora corresponde realizar una auditoría retrospectiva, asumir errores y establecer un procedimiento de registro para las futuras intervenciones.
 
 El proceso y sus resultados se documentarán en `docs/AUDITORIA.md`.
+
+## Planificación de la auditoría técnica
+
+- **Problema abordado:** Necesitaba establecer un plazo realista para realizar la auditoría técnica de RouteRobots, considerando que desarrollo el proyecto individualmente y debo dedicar tiempo a otras materias.
+
+- **Prompt / Herramienta utilizada:** Consulté a ChatGPT cómo organizar la auditoría y cuánto tiempo sería razonable dedicarle sin retrasar el resto del proyecto.
+
+- **Propuesta de la IA:** Se propuso distribuir la revisión entre el 22 de octubre y el 3 de noviembre de 2026, comenzando por la arquitectura y el backend, continuando con el frontend y las integraciones, y finalizando con las pruebas, la documentación y las verificaciones generales.
+
+- **Validación y decisión humana:** Evalué la propuesta considerando mi disponibilidad y las fechas de entrega de las demás materias. Decidí establecer el 3 o 4 de noviembre como fecha límite, priorizando los errores importantes y dejando documentadas las mejoras secundarias que no lleguen a resolverse.
