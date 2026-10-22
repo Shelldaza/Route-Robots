@@ -118,6 +118,7 @@ export default function SimulationIncidentSection(
 
       {network && (
         <RandomFleetReports
+          key={simulationId + ':' + network.version}
           simulationId={simulationId}
           networkVersion={network.version}
           scenarioTime={scenarioTime}

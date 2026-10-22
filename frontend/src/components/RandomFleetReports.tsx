@@ -1,11 +1,13 @@
-import { requestRandomReport } from '../features/incidents/random-reports-api';
-import { errorMessage } from '../api/client';
-import type { Coordinate } from '../../../shared/contracts/geography'
 import {
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+  useRandomReportScheduler,
+} from '../hooks/useRandomReportScheduler';
+
+import {
+  useFleetNotifications,
+} from '../hooks/useFleetNotifications';
+
+import type { Coordinate } from '../../../shared/contracts/geography'
+
 
 import type { IncidentDTO as Incident } from '../../../shared/contracts/incidents'
 
@@ -13,9 +15,7 @@ import {
   getIncidentAppearance,
 } from '../utils/incident-icons'
 
-import {
-  nextReportAt,
-} from '../utils/random-report-schedule'
+
 
 type Props = {
   simulationId: string
@@ -26,10 +26,7 @@ type Props = {
   onReported: (incident: Incident) => void
 }
 
-type Notice = {
-  incident: Incident
-  onRoute: boolean
-}
+
 
 function reportText(incident: Incident) {
   const segment =
@@ -61,159 +58,32 @@ export default function RandomFleetReports({
   disabled,
   onReported,
 }: Props) {
-  const [generationId] = useState(
-    () => crypto.randomUUID(),
-  )
 
-  const [enabled, setEnabled] = useState(true)
-  const [index, setIndex] = useState(0)
-  const [routeCount, setRouteCount] = useState(0)
+  const {
+    notices,
+    toast,
+    notify,
+    dismiss,
+  } = useFleetNotifications(onReported);
 
-  const [nextAt, setNextAt] = useState(
-    () => nextReportAt(Date.parse(scenarioTime)),
-  )
-
-  const [notices, setNotices] =
-    useState<Notice[]>([])
-
-  const [toast, setToast] =
-    useState<Notice | null>(null)
-
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState('')
-  const [message, setMessage] = useState('')
-  const [retryKey, setRetryKey] = useState(0)
-
-  const pendingRef = useRef(false)
-  const requestBodyRef = useRef<string | null>(null)
-
-  const controllerRef =
-    useRef<AbortController | null>(null)
-
-  const mountedRef = useRef(false)
-
-  useEffect(() => {
-    mountedRef.current = true
-
-    return () => {
-      mountedRef.current = false
-      controllerRef.current?.abort()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!toast) return
-
-    const timer = window.setTimeout(
-      () => setToast(null),
-      8000,
-    )
-
-    return () => window.clearTimeout(timer)
-  }, [toast])
-
-  useEffect(() => {
-    const now = Date.parse(scenarioTime)
-
-    if (
-      !enabled
-      || disabled
-      || coordinates.length < 2
-      || error
-      || pendingRef.current
-      || now < nextAt
-    ) {
-      return
-    }
-
-    pendingRef.current = true
-    setSending(true)
-    setMessage('')
-
-    // Conserva el contexto original si hay que reintentar.
-    requestBodyRef.current ??= JSON.stringify({
-      simulationId,
-      generationId,
-      index,
-      networkVersion,
-      scenarioTime: new Date(nextAt).toISOString(),
-      coordinates,
-    })
-
-    const serializedBody = requestBodyRef.current
-    const controller = new AbortController()
-    controllerRef.current = controller
-
-    async function send() {
-      try {
-        const body = await requestRandomReport(serializedBody, simulationId, controller.signal)
-        if (!mountedRef.current || controller.signal.aborted) return
-
-        if (body.status === 'skipped') {
-          setMessage(
-            'No hay un tramo libre adecuado. Se reintentará en el próximo intervalo.',
-          )
-        } else {
-          const notice = {
-            incident: body.incident,
-            onRoute: body.onRoute,
-          }
-
-          onReported(notice.incident)
-
-          setNotices((current) => [
-            notice,
-            ...current.filter(
-              (item) =>
-                item.incident.id !== notice.incident.id,
-            ),
-          ].slice(0, 8))
-
-          setToast(notice)
-          setIndex((current) => current + 1)
-
-          if (notice.onRoute) {
-            setRouteCount((current) => current + 1)
-          }
-        }
-
-        requestBodyRef.current = null
-
-        // Los intervalos pertenecen al reloj del escenario.
-        // Si avanzó de golpe, procesa los eventos vencidos
-        // de uno en uno, sin solicitudes simultáneas.
-        setNextAt(nextReportAt(nextAt))
-      } catch (caught) {
-        if (
-          mountedRef.current
-          && !controller.signal.aborted
-        ) {
-          setError(errorMessage(caught))
-        }
-      } finally {
-        pendingRef.current = false
-
-        if (mountedRef.current) {
-          setSending(false)
-        }
-      }
-    }
-
-    void send()
-  }, [
-    simulationId,
-    generationId,
+  const {
+    enabled,
     index,
+    routeCount,
+    nextAt,
+    sending,
+    error,
+    message,
+    toggle,
+    retry,
+  } = useRandomReportScheduler({
+    simulationId,
     networkVersion,
     scenarioTime,
     coordinates,
     disabled,
-    enabled,
-    error,
-    nextAt,
-    retryKey,
-    onReported,
-  ])
+    onReported: notify,
+  });
 
   const seconds = Math.max(
     0,
@@ -237,19 +107,7 @@ export default function RandomFleetReports({
         <input
           type="checkbox"
           checked={enabled}
-          onChange={(event) => {
-            const checked = event.target.checked
-            setEnabled(checked)
-
-            if (
-              checked
-              && !requestBodyRef.current
-            ) {
-              setNextAt(
-                nextReportAt(Date.parse(scenarioTime)),
-              )
-            }
-          }}
+          onChange={event => toggle(event.target.checked)}
         />
         Generar reportes automáticamente
       </label>
@@ -284,10 +142,7 @@ export default function RandomFleetReports({
 
           <button
             type="button"
-            onClick={() => {
-              setError('')
-              setRetryKey((current) => current + 1)
-            }}
+            onClick={retry}
           >
             Reintentar reporte
           </button>
@@ -329,7 +184,7 @@ export default function RandomFleetReports({
           <button
             type="button"
             aria-label="Cerrar notificación"
-            onClick={() => setToast(null)}
+            onClick={dismiss}
           >
             ×
           </button>
