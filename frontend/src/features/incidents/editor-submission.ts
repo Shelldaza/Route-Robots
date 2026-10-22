@@ -56,7 +56,17 @@ export function prepareSubmission(
 
   const key = JSON.stringify({
     contextKey,
-    selection,
+    selection: selection.mode === 'surface'
+      ? {
+          mode: selection.mode,
+          box: selection.box,
+        }
+      : {
+          mode: selection.mode,
+          segmentIds: selection.segments.map(
+            (item) => item.id,
+          ),
+        },
     type,
     effect,
     description,
