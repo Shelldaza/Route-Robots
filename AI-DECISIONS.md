@@ -18,10 +18,10 @@
 
 ## Regularización del registro de uso de IA
 
-Problema: durante el desarrollo inicial no se documentaron sistemáticamente las intervenciones de IA ni todas las verificaciones y correciones manuales (En la practica si fueron realizadas).
+**Problema:** Durante el desarrollo inicial no documenté sistemáticamente todas las intervenciones de IA ni las verificaciones y correcciones manuales realizadas.
 
-Contexto: el proyecto fue desarrollado individualmente, con un alcance técnico considerable y plazos académicos limitados (Claramente error mio). Esto llevó a priorizar la implementación funcional sobre el registro documental (Esto es un error).
+**Contexto:** Al desarrollar individualmente un proyecto de alcance considerable y con plazos académicos limitados, prioricé la implementación funcional sobre el registro documental. Reconozco que fue un error metodológico de mi parte.
 
+**Acción correctiva:** Mi intención no es ocultarlo ni recostruir falsamente documentación, si bien tengo los prompts y demás, no tengo intención de reconstruirlo, puesto que a lo largo de la carrera se me enseño a ser responsable y tener criterio propio, así que ahora corresponde realizar una auditoría retrospectiva, asumir errores y establecer un procedimiento de registro para las futuras intervenciones.
 
-Acción correctiva: Mi intención no es ocultarlo ni recostruir falsamente documentación, a lo largo de la carrera se me enseño a ser responsable y tener criterio propio, así que ahora corresponde realizar una auditoría retrospectiva y establecer un procedimiento de registro para las futuras intervenciones.
-
+El proceso y sus resultados se documentarán en `docs/AUDITORIA.md`.
