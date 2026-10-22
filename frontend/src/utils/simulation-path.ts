@@ -1,4 +1,5 @@
-export type Coordinate = [number, number]
+import type { Coordinate } from '../../../shared/contracts/geography'
+export type { Coordinate } from '../../../shared/contracts/geography'
 
 export type SimulationPath = {
   coordinates: Coordinate[]

@@ -33,11 +33,7 @@ import {
     world,
 } from '../../../shared/surfaces';
 
-import type {
-    Area,
-    Point,
-    Box,
-} from '../../../shared/surfaces';
+import type { Area, Point, Box } from '../../../shared/contracts/surfaces'
 
 export const placementSchema = z.strictObject({
     simulationId: z.uuid(),
@@ -123,6 +119,7 @@ export function initialSurfaceBox(
 
 export async function placeIncident(
     input: z.infer<typeof placementSchema>,
+    signal?: AbortSignal,
 ) {
     const context = await getSurfaceContext(
         input.simulationId,
@@ -152,11 +149,12 @@ export async function placeIncident(
     );
 
     const surfaces = (
-        await queryWalkSurfaces(bounds)
+        await queryWalkSurfaces(bounds, 'current', signal)
     ).filter((surface) =>
         [1480, 1483].includes(surface.code)
     );
 
+    signal?.throwIfAborted();
     const near = queryPedestrianSegments(
         bounds,
         1001,

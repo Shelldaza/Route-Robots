@@ -1,7 +1,5 @@
-export type IncidentEffect =
-    | 'informational'
-    | 'caution'
-    | 'blockage';
+import type { IncidentEffect, IncidentType } from '../../../shared/contracts/incidents';
+export type { IncidentEffect, IncidentType } from '../../../shared/contracts/incidents';
 
 type IncidentDefinition = {
     label: string;
@@ -84,9 +82,8 @@ export const INCIDENT_CATALOG = {
         defaultEffect: 'caution',
         iconFile: 'uneven-surface.png',
     },
-} as const satisfies Record<string, IncidentDefinition>;
+} as const satisfies Record<IncidentType, IncidentDefinition>;
 
-export type IncidentType = keyof typeof INCIDENT_CATALOG;
 
 export const INCIDENT_TYPES = Object.keys(
     INCIDENT_CATALOG,

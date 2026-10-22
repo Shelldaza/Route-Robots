@@ -1,42 +1,5 @@
-export type Point = [number, number];
-
-export type Area = {
-    type: 'MultiPolygon';
-    coordinates: Point[][][];
-};
-
-export type Bounds = {
-    south: number;
-    west: number;
-    north: number;
-    east: number;
-};
-
-export type Box = {
-    center: Point;
-    halfWidth: number;
-    halfLength: number;
-    angle: number;
-};
-
-export type WalkSurface = {
-    id: number;
-    code: number;
-    capturedAt: string | null;
-    geometry: Area;
-};
-
-export type SurfaceImpact = {
-    geometry: Area;
-    collisionGeometry: Area;
-    surfaces: WalkSurface[];
-    contextSurfaces?: WalkSurface[];
-    segmentIds: string[];
-    source: string;
-    retrievedAt: string;
-    box: Box;
-    unknown: boolean;
-};
+import type { Area, Bounds, Box, Point } from './contracts/surfaces';
+export type { Area, Bounds, Box, Point, WalkSurface, SurfaceImpact } from './contracts/surfaces';
 
 export const EMPTY: Area = {
     type: 'MultiPolygon',

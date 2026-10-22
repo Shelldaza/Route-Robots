@@ -1,3 +1,15 @@
+import {
+  readSurfaceIncidentDetail,
+} from '../services/incident-detail';
+
+import {
+  readIncidentSnapshot,
+} from '../repositories/incident-views';
+import {
+  attachRequestSignal,
+  requestSignal,
+} from '../http/request-signal';
+import { createSurfaceEvaluation } from '../services/surface-evaluation';
 import { Router } from 'express';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -36,9 +48,7 @@ import {
 } from '../services/surface-incidents';
 
 import {
-    calculateSurfaceRoute,
     previewSurfacePath,
-    toolIncidents,
 } from '../services/surface-routing';
 
 import {
@@ -56,9 +66,6 @@ import {
     placeIncident,
 } from '../services/incident-placement';
 
-import {
-    contains,
-} from '../../../shared/surfaces';
 
 const surfaceReplanningSchema = routingContextSchema.extend({
     preferredCoordinates: z
@@ -74,11 +81,13 @@ const surfaceReplanningSchema = routingContextSchema.extend({
 });
 
 export const surfacesRouter = Router();
+surfacesRouter.use(attachRequestSignal);
 export const surfaceReplanningRouter = Router();
 
 const historySchema = z.object({
     simulationId: z.uuid(),
     scenarioTime: z.string().datetime({ offset: true }),
+    incidentId: z.uuid().optional(),
 });
 
 const segmentReportSchema = surfaceReportSchema
@@ -100,6 +109,7 @@ function failure(
     error: unknown,
     response: Response,
 ) {
+    if (response.destroyed || response.writableEnded) return;
     if (
         error instanceof RoutingError
         || error instanceof ReplanningError
@@ -152,6 +162,7 @@ surfacesRouter.get('/', async (request, response) => {
             surfaces: await queryWalkSurfaces(
                 input.data,
                 source.data,
+                requestSignal(request),
             ),
         });
     } catch (error) {
@@ -178,6 +189,34 @@ surfacesRouter.post('/context', async (request, response) => {
     }
 });
 
+
+// La lista contiene resúmenes.
+// El mapa recibe solo geometrías activas en la fecha solicitada.
+surfacesRouter.get(
+  '/snapshot',
+  async (request, response) => {
+    const input = historySchema.safeParse(request.query);
+
+    if (!input.success) {
+      response.status(400).json({
+        message: 'La simulación o la fecha es inválida.',
+      });
+      return;
+    }
+
+    try {
+      response.json(
+        await readIncidentSnapshot(
+          input.data.simulationId,
+          input.data.scenarioTime,
+        ),
+      );
+    } catch (error) {
+      failure(error, response);
+    }
+  },
+);
+
 surfacesRouter.get('/history', async (request, response) => {
     const input = historySchema.safeParse(request.query);
 
@@ -190,10 +229,15 @@ surfacesRouter.get('/history', async (request, response) => {
 
     try {
         response.json(
-            await surfaceHistory(
-                input.data.simulationId,
-                input.data.scenarioTime,
-            ),
+            input.data.incidentId
+                ? await readSurfaceIncidentDetail(
+                    input.data.simulationId,
+                    input.data.incidentId,
+                )
+                : await surfaceHistory(
+                    input.data.simulationId,
+                    input.data.scenarioTime,
+                ),
         );
     } catch (error) {
         failure(error, response);
@@ -212,7 +256,7 @@ surfacesRouter.post('/placement', async (request, response) => {
 
     try {
         response.json(
-            await placeIncident(input.data),
+            await placeIncident(input.data, requestSignal(request)),
         );
     } catch (error) {
         failure(error, response);
@@ -231,7 +275,7 @@ surfacesRouter.post('/preview', async (request, response) => {
 
     try {
         const { context, impact } =
-            await prepareSurfaceImpact(input.data);
+            await prepareSurfaceImpact(input.data, requestSignal(request));
 
         const active = (
             await surfaceHistory(
@@ -304,7 +348,7 @@ surfacesRouter.post('/incidents', async (request, response) => {
         }
 
         const { impact } =
-            await prepareSurfaceImpact(input.data);
+            await prepareSurfaceImpact(input.data, requestSignal(request));
 
         response.status(201).json(
             await saveSurfaceReport(
@@ -472,94 +516,22 @@ surfaceReplanningRouter.post(
                 ...routingContext
             } = input.data;
 
-            let calculationFailure: RoutingError | null = null;
+            const evaluation = createSurfaceEvaluation(
+                context,
+                at,
+                input.data.origin,
+                preferredCoordinates,
+            );
 
             const result = await replanRoute(
                 {
                     ...routingContext,
                     scenarioTime: at,
                 },
-                {
-                    listActiveIncidents: async (
-                        simulationId,
-                        time,
-                    ) => {
-                        if (
-                            simulationId !== context.simulationId
-                            || !time
-                        ) {
-                            throw new RoutingError(
-                                400,
-                                'El contexto de la evaluación cambió.',
-                            );
-                        }
-
-                        const active = (
-                            await surfaceHistory(
-                                simulationId,
-                                time,
-                                false,
-                            )
-                        ).filter((incident) =>
-                            incident.effect === 'blockage'
-                        );
-
-                        return toolIncidents(
-                            active,
-                            context,
-                        );
-                    },
-
-                    calculateRoute: async (value) => {
-                        const active = (
-                            await surfaceHistory(
-                                context.simulationId,
-                                at,
-                                false,
-                            )
-                        ).filter((incident) =>
-                            incident.effect === 'blockage'
-                        );
-
-                        const history = await surfaceHistory(
-                            context.simulationId,
-                            at,
-                            true,
-                        );
-
-                        const start = input.data.origin;
-
-                        const known = history
-                            .flatMap((incident) =>
-                                incident.surfaceImpact?.contextSurfaces
-                                ?? incident.surfaceImpact?.surfaces
-                                ?? []
-                            )
-                            .filter((surface) =>
-                                contains(
-                                    surface.geometry,
-                                    [start.lng, start.lat],
-                                )
-                            );
-
-                        try {
-                            return await calculateSurfaceRoute(
-                                value,
-                                context,
-                                active,
-                                known,
-                                preferredCoordinates,
-                            );
-                        } catch (error) {
-                            if (error instanceof RoutingError) {
-                                calculationFailure = error;
-                            }
-
-                            throw error;
-                        }
-                    },
-                },
+                evaluation,
             );
+
+            const calculationFailure = evaluation.getFailure();
 
             response.json(
                 result.status === 'not_replanned'

@@ -1,18 +1,47 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { pool } from '../db';
-import { pedestrianSelectionSchema, resolvePedestrianSelection, impactBounds } from './pedestrian-network';
-import type { PedestrianImpact } from './pedestrian-network';
-import { blockedAreaSchema } from './routing';
+
+import {
+    pedestrianSelectionSchema,
+    resolvePedestrianSelection,
+    impactBounds,
+} from './pedestrian-network';
+
+import {
+    blockedAreaSchema,
+} from './routing';
+
 import {
     INCIDENT_CATALOG,
     isIncidentType,
 } from '../config/incident-catalog';
+
 import type {
-    IncidentEffect,
     IncidentType,
 } from '../config/incident-catalog';
 
+import type {
+    Incident,
+    ListedIncident,
+} from '../types/incidents';
+
+import {
+    insertIncident,
+    findIncidents,
+    findActiveBlockages,
+    findIncidentById as findStoredIncidentById,
+} from '../repositories/incidents';
+
+// Conservamos los exports anteriores para que los endpoints, las herramientas
+// MCP y los tests puedan seguir importando estos tipos desde este servicio.
+export type {
+    Incident,
+    IncidentStatus,
+    ListedIncident,
+} from '../types/incidents';
+
+// El servicio valida los datos antes de entregarlos al repositorio.
+// Las consultas SQL quedan concentradas en repositories/incidents.ts.
 export const simulationIdSchema = z.string().uuid();
 
 export const scenarioTimeSchema = z
@@ -35,11 +64,16 @@ const incidentEffectSchema = z.enum([
 
 export const createIncidentSchema = z.object({
     simulationId: simulationIdSchema,
-    blockedArea: blockedAreaSchema.optional(),
-    pedestrianSelection: pedestrianSelectionSchema.optional(),
 
-    // Compatibilidad con el botón actual.
+    blockedArea: blockedAreaSchema.optional(),
+
+    pedestrianSelection:
+        pedestrianSelectionSchema.optional(),
+
+    // 'blockage' conserva compatibilidad con reportes antiguos
+    // creados desde la simulación.
     type: incidentTypeSchema.default('blockage'),
+
     source: z
         .enum([
             'simulation',
@@ -74,61 +108,28 @@ export const createIncidentSchema = z.object({
     startsAt: scenarioTimeSchema.optional(),
 }).superRefine((input, context) => {
     if (!input.blockedArea && !input.pedestrianSelection) {
-        context.addIssue({ code: 'custom', message: 'Seleccioná una ubicación válida.' });
+        context.addIssue({
+            code: 'custom',
+            message: 'Seleccioná una ubicación válida.',
+        });
     }
-    if (input.source === 'manual' && !input.pedestrianSelection) {
-        context.addIssue({ code: 'custom', message: 'Seleccioná tramos de la red peatonal.' });
+
+    // Este servicio conserva el contrato de los reportes manuales por tramo.
+    // Los reportes de superficies tienen su propio flujo de validación.
+    if (
+        input.source === 'manual'
+        && !input.pedestrianSelection
+    ) {
+        context.addIssue({
+            code: 'custom',
+            message: 'Seleccioná tramos de la red peatonal.',
+        });
     }
 });
 
-export type Incident = {
-    id: string;
-    simulationId: string;
-    type: IncidentType | 'blockage';
-    source:
-    | 'simulation'
-    | 'manual'
-    | 'ai_generated';
-    description: string;
-    effect: IncidentEffect;
-    reporterName: string | null;
-    blockedArea: z.infer<typeof blockedAreaSchema>;
-    pedestrianImpact?: PedestrianImpact | null;
-    createdAt: Date;
-    startsAt: Date;
-    expiresAt: Date;
-};
-
-export type IncidentStatus =
-    | 'scheduled'
-    | 'active'
-    | 'finished';
-
-export type ListedIncident = Incident & {
-    status: IncidentStatus;
-};
-
-const incidentColumns = `
-    id,
-    simulation_id AS "simulationId",
-    type,
-    source,
-    description,
-    effect,
-    reporter_name AS "reporterName",
-    json_build_object(
-        'south', south,
-        'west', west,
-        'north', north,
-        'east', east
-    ) AS "blockedArea",
-    pedestrian_impact AS "pedestrianImpact",
-    created_at AS "createdAt",
-    starts_at AS "startsAt",
-    expires_at AS "expiresAt"
-`;
-
 function resolveScenarioTime(value?: string): Date {
+    // Si recibimos una fecha del escenario, esa fecha determina la vigencia.
+    // Solo usamos la hora real cuando el llamador no envía una fecha.
     return value === undefined
         ? new Date()
         : new Date(scenarioTimeSchema.parse(value));
@@ -139,7 +140,11 @@ export async function createIncident(
     id: string = randomUUID(),
 ): Promise<Incident> {
     const input = createIncidentSchema.parse(value);
+
     simulationIdSchema.parse(id);
+
+    // El catálogo propone valores. Una elección explícita del usuario
+    // conserva prioridad sobre esas propuestas.
     const defaults =
         input.type === 'blockage'
             ? {
@@ -182,66 +187,45 @@ export async function createIncident(
         );
     }
 
+    // La selección contiene identificadores de tramos.
+    // Su geometría se resuelve con la red del servidor, evitando confiar
+    // en coordenadas inventadas o correspondientes a otra versión.
     const impact = input.pedestrianSelection
-        ? resolvePedestrianSelection(input.pedestrianSelection) : null;
-    const { south, west, north, east } = impact ? impactBounds(impact) : input.blockedArea!;
+        ? resolvePedestrianSelection(input.pedestrianSelection)
+        : null;
 
-    const result = await pool.query<Incident>(
-        `
-        INSERT INTO incidents (
-            id,
-            simulation_id,
-            type,
-            source,
-            description,
-            effect,
-            reporter_name,
+    const {
+        south,
+        west,
+        north,
+        east,
+    } = impact
+        ? impactBounds(impact)
+        : input.blockedArea!;
+
+    // Llegamos al repositorio con los datos validados y preparados.
+    // El repositorio únicamente se encarga de persistirlos.
+    return insertIncident({
+        id,
+        simulationId: input.simulationId,
+        type: input.type,
+        source: input.source,
+        description,
+        effect,
+        reporterName,
+        blockedArea: {
             south,
             west,
             north,
             east,
-            starts_at,
-            expires_at,
-            pedestrian_impact
-        )
-        VALUES (
-            $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10, $11, $12, $13, $14
-        )
-        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
-        RETURNING ${incidentColumns}
-        `,
-        [
-            id,
-            input.simulationId,
-            input.type,
-            input.source,
-            description,
-            effect,
-            reporterName,
-            south,
-            west,
-            north,
-            east,
-            startsAt,
-            expiresAt,
-            impact ? JSON.stringify(impact) : null,
-        ],
-    );
-
-    const incident = result.rows[0];
-
-    if (!incident) {
-        throw new Error(
-            'La base no devolvió el incidente registrado.',
-        );
-    }
-
-    return incident;
+        },
+        pedestrianImpact: impact,
+        startsAt,
+        expiresAt,
+    });
 }
 
-// Consulta para el mapa y el historial.
-// Incluye todos los efectos.
+// El mapa y el historial incluyen todos los efectos.
 export async function listIncidents(
     simulationId: string,
     options: {
@@ -249,87 +233,34 @@ export async function listIncidents(
         includeHistory?: boolean;
     } = {},
 ): Promise<ListedIncident[]> {
-    const validId =
-        simulationIdSchema.parse(simulationId);
+    const validId = simulationIdSchema.parse(simulationId);
 
-    const scenarioTime =
-        resolveScenarioTime(options.scenarioTime);
+    const at = resolveScenarioTime(options.scenarioTime);
 
-    const includeHistory =
-        options.includeHistory ?? false;
-
-    const result = await pool.query<ListedIncident>(
-        `
-        SELECT
-            ${incidentColumns},
-            CASE
-                WHEN starts_at > $2::timestamptz
-                    THEN 'scheduled'
-                WHEN expires_at <= $2::timestamptz
-                    THEN 'finished'
-                ELSE 'active'
-            END AS status
-        FROM incidents
-        WHERE simulation_id = $1
-          AND (
-              $3::boolean
-              OR (
-                  starts_at <= $2::timestamptz
-                  AND expires_at > $2::timestamptz
-              )
-          )
-        ORDER BY starts_at DESC, id
-        `,
-        [
-            validId,
-            scenarioTime,
-            includeHistory,
-        ],
+    return findIncidents(
+        validId,
+        at,
+        options.includeHistory ?? false,
     );
-
-    return result.rows;
 }
 
-// Conservamos esta función para las herramientas MCP.
-// Solo devuelve incidentes que realmente bloquean.
+// Las herramientas MCP que usan este servicio reciben solo bloqueos activos.
+// La selección temporal se hace con la fecha del escenario indicada.
 export async function listActiveIncidents(
     simulationId: string,
     scenarioTime?: string,
 ): Promise<Incident[]> {
-    const validId =
-        simulationIdSchema.parse(simulationId);
+    const validId = simulationIdSchema.parse(simulationId);
 
     const at = resolveScenarioTime(scenarioTime);
 
-    const result = await pool.query<Incident>(
-        `
-        SELECT ${incidentColumns}
-        FROM incidents
-        WHERE simulation_id = $1
-          AND starts_at <= $2::timestamptz
-          AND expires_at > $2::timestamptz
-          AND effect = 'blockage'
-        ORDER BY created_at DESC, id
-        `,
-        [
-            validId,
-            at,
-        ],
-    );
-
-    return result.rows;
+    return findActiveBlockages(validId, at);
 }
+
 export async function findIncidentById(
     id: string,
 ): Promise<Incident | null> {
-    const result = await pool.query<Incident>(
-        `
-        SELECT ${incidentColumns}
-        FROM incidents
-        WHERE id = $1
-        `,
-        [simulationIdSchema.parse(id)],
+    return findStoredIncidentById(
+        simulationIdSchema.parse(id),
     );
-
-    return result.rows[0] ?? null;
 }

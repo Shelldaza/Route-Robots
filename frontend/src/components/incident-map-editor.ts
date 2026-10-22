@@ -1,27 +1,18 @@
+import { errorMessage } from '../api/client.ts';
+import { requestWalkSurfaces } from '../features/incidents/editor-api';
+import type { IncidentEffect } from '../../../shared/contracts/incidents'
 import * as L from 'leaflet'
 
 import {
   boxArea,
-  isArea,
   local,
   world,
 } from '../../../shared/surfaces'
 
-import type {
-  Area,
-  Box,
-  Point,
-  WalkSurface,
-} from '../../../shared/surfaces'
+import type { Area, Box, Point } from '../../../shared/contracts/surfaces'
 
-import type {
-  PedestrianSegment,
-} from '../utils/pedestrian-network'
+import type { PedestrianSegment } from '../../../shared/contracts/pedestrian'
 
-import {
-  fetchJson,
-  errorMessage,
-} from '../utils/robot-models'
 
 export type IncidentSelection =
   | {
@@ -42,7 +33,7 @@ export type MapPreview = {
 export type EditorState = {
   selection: IncidentSelection | null
   preview: MapPreview | null
-  effect: 'informational' | 'caution' | 'blockage'
+  effect: IncidentEffect
   disabled: boolean
   canConfirm: boolean
   message: string
@@ -476,29 +467,13 @@ export function createIncidentMapEditor(
     })
 
     try {
-      const result = await fetchJson(
-        `/api/surfaces?${query}`,
-        { signal: controller.signal },
-      ) as {
-        surfaces: WalkSurface[]
-      }
-
-      if (
-        !Array.isArray(result.surfaces)
-        || !result.surfaces.every((surface) =>
-          isArea(surface.geometry)
-        )
-      ) {
-        throw new Error(
-          'La cartografía recibida es inválida.',
-        )
-      }
+      const result = await requestWalkSurfaces(query, controller.signal)
 
       if (disposed || controller.signal.aborted) {
         return
       }
 
-      for (const surface of result.surfaces) {
+      for (const surface of result) {
         L.geoJSON(surface.geometry, {
           pane: surfacePane,
           style: {
