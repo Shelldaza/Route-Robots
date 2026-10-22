@@ -15,3 +15,13 @@
 - **Código / Arquitectura generada:** La IA identificó un bug de compatibilidad conocido entre dependencias modernas y la librería tradicional `ts-node`. Recomendó desinstalar `ts-node` y reemplazarlo por `tsx` (TypeScript Execute), actualizando el script `dev` en el `package.json`.
 - **Validación y Corrección Humana:** Se investigó la sugerencia de la IA y se confirmó que `tsx` es el estándar actual de la industria para versiones recientes de Node.js (v20+). Se aplicó el cambio, lo que resolvió el error inmediatamente.
 
+
+## Regularización del registro de uso de IA
+
+Problema: durante el desarrollo inicial no se documentaron sistemáticamente las intervenciones de IA ni todas las verificaciones y correciones manuales (En la practica si fueron realizadas).
+
+Contexto: el proyecto fue desarrollado individualmente, con un alcance técnico considerable y plazos académicos limitados (Claramente error mio). Esto llevó a priorizar la implementación funcional sobre el registro documental (Esto es un error).
+
+
+Acción correctiva: Mi intención no es ocultarlo ni recostruir falsamente documentación, a lo largo de la carrera se me enseño a ser responsable y tener criterio propio, así que ahora corresponde realizar una auditoría retrospectiva y establecer un procedimiento de registro para las futuras intervenciones.
+
