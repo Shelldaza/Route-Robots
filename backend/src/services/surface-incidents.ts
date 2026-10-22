@@ -234,6 +234,7 @@ export async function surfaceHistory(
 
 export async function prepareSurfaceImpact(
     input: z.infer<typeof previewSchema>,
+    signal?: AbortSignal,
 ): Promise<{
     context: SurfaceContext;
     impact: SurfaceImpact;
@@ -258,8 +259,11 @@ export async function prepareSurfaceImpact(
 
     const candidates = await queryWalkSurfaces(
         areaBounds(rectangle, 35),
+        'current',
+        signal,
     );
 
+    signal?.throwIfAborted();
     const walkable = candidates.filter((surface) =>
         [1480, 1483].includes(surface.code)
     );

@@ -1,3 +1,6 @@
+import {
+  sameValue,
+} from '../../../../shared/values.ts';
 import type {
   IncidentDTO as Incident,
   IncidentEffect,
@@ -60,7 +63,7 @@ export const STATUS_LABELS: Record<
 }
 
 export function getIncidentStatus(
-  incident: Incident,
+  incident: Pick<Incident, 'startsAt' | 'expiresAt'>,
   nowMs: number,
 ): IncidentStatus {
   if (Date.parse(incident.startsAt) > nowMs) {
@@ -97,7 +100,14 @@ export function mergeIncidents(
   )
 
   for (const incident of incoming) {
-    records.set(incident.id, incident)
+    const previous = records.get(incident.id);
+
+    records.set(
+      incident.id,
+      previous && sameValue(previous, incident)
+        ? previous
+        : incident,
+    );
   }
 
   return [...records.values()].sort(

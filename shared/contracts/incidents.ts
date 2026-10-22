@@ -62,7 +62,7 @@ export type IncidentData = {
 // Las fechas son texto porque JSON no transporta objetos Date.
 // Las validaciones de los datos recibidos siguen siendo necesarias.
 export type IncidentDTO = IncidentData & {
-  surfaceImpact?: SurfaceImpact | null
+  surfaceImpact?: SurfaceImpact | SurfaceMapImpact | null
   createdAt: string
   startsAt: string
   expiresAt: string
@@ -71,3 +71,33 @@ export type IncidentDTO = IncidentData & {
 export type ListedIncidentDTO = IncidentDTO & {
   status: IncidentStatus
 }
+
+// El mapa necesita estas geometrías para dibujar y detectar bloqueos.
+// Las superficies de contexto permanecen en el backend.
+export type SurfaceMapImpact = Pick<
+  SurfaceImpact,
+  'geometry' | 'collisionGeometry'
+> & {
+  representation: 'map';
+};
+
+export type IncidentSummaryDTO = Pick<
+  IncidentDTO,
+  | 'id'
+  | 'simulationId'
+  | 'type'
+  | 'source'
+  | 'description'
+  | 'effect'
+  | 'reporterName'
+  | 'createdAt'
+  | 'startsAt'
+  | 'expiresAt'
+> & {
+  placementKind: 'surface' | 'segment' | 'area';
+};
+
+export type IncidentSnapshotDTO = {
+  history: IncidentSummaryDTO[];
+  active: IncidentDTO[];
+};

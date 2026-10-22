@@ -1,3 +1,14 @@
+import {
+  readSurfaceIncidentDetail,
+} from '../services/incident-detail';
+
+import {
+  readIncidentSnapshot,
+} from '../repositories/incident-views';
+import {
+  attachRequestSignal,
+  requestSignal,
+} from '../http/request-signal';
 import { createSurfaceEvaluation } from '../services/surface-evaluation';
 import { Router } from 'express';
 import type { Response } from 'express';
@@ -70,11 +81,13 @@ const surfaceReplanningSchema = routingContextSchema.extend({
 });
 
 export const surfacesRouter = Router();
+surfacesRouter.use(attachRequestSignal);
 export const surfaceReplanningRouter = Router();
 
 const historySchema = z.object({
     simulationId: z.uuid(),
     scenarioTime: z.string().datetime({ offset: true }),
+    incidentId: z.uuid().optional(),
 });
 
 const segmentReportSchema = surfaceReportSchema
@@ -96,6 +109,7 @@ function failure(
     error: unknown,
     response: Response,
 ) {
+    if (response.destroyed || response.writableEnded) return;
     if (
         error instanceof RoutingError
         || error instanceof ReplanningError
@@ -148,6 +162,7 @@ surfacesRouter.get('/', async (request, response) => {
             surfaces: await queryWalkSurfaces(
                 input.data,
                 source.data,
+                requestSignal(request),
             ),
         });
     } catch (error) {
@@ -174,6 +189,34 @@ surfacesRouter.post('/context', async (request, response) => {
     }
 });
 
+
+// La lista contiene resúmenes.
+// El mapa recibe solo geometrías activas en la fecha solicitada.
+surfacesRouter.get(
+  '/snapshot',
+  async (request, response) => {
+    const input = historySchema.safeParse(request.query);
+
+    if (!input.success) {
+      response.status(400).json({
+        message: 'La simulación o la fecha es inválida.',
+      });
+      return;
+    }
+
+    try {
+      response.json(
+        await readIncidentSnapshot(
+          input.data.simulationId,
+          input.data.scenarioTime,
+        ),
+      );
+    } catch (error) {
+      failure(error, response);
+    }
+  },
+);
+
 surfacesRouter.get('/history', async (request, response) => {
     const input = historySchema.safeParse(request.query);
 
@@ -186,10 +229,15 @@ surfacesRouter.get('/history', async (request, response) => {
 
     try {
         response.json(
-            await surfaceHistory(
-                input.data.simulationId,
-                input.data.scenarioTime,
-            ),
+            input.data.incidentId
+                ? await readSurfaceIncidentDetail(
+                    input.data.simulationId,
+                    input.data.incidentId,
+                )
+                : await surfaceHistory(
+                    input.data.simulationId,
+                    input.data.scenarioTime,
+                ),
         );
     } catch (error) {
         failure(error, response);
@@ -208,7 +256,7 @@ surfacesRouter.post('/placement', async (request, response) => {
 
     try {
         response.json(
-            await placeIncident(input.data),
+            await placeIncident(input.data, requestSignal(request)),
         );
     } catch (error) {
         failure(error, response);
@@ -227,7 +275,7 @@ surfacesRouter.post('/preview', async (request, response) => {
 
     try {
         const { context, impact } =
-            await prepareSurfaceImpact(input.data);
+            await prepareSurfaceImpact(input.data, requestSignal(request));
 
         const active = (
             await surfaceHistory(
@@ -300,7 +348,7 @@ surfacesRouter.post('/incidents', async (request, response) => {
         }
 
         const { impact } =
-            await prepareSurfaceImpact(input.data);
+            await prepareSurfaceImpact(input.data, requestSignal(request));
 
         response.status(201).json(
             await saveSurfaceReport(

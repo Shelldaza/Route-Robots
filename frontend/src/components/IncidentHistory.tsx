@@ -1,5 +1,5 @@
 import type {
-  IncidentDTO as Incident,
+  IncidentSummaryDTO as Incident,
 } from '../../../shared/contracts/incidents'
 
 import {
@@ -40,9 +40,9 @@ export default function IncidentHistory({
           <p>{incident.description}</p>
 
           <p>
-            {incident.surfaceImpact
+            {incident.placementKind === 'surface'
               ? `Efecto: ${EFFECT_LABELS[incident.effect]}. Área delimitada sobre la superficie cartográfica.`
-              : `Efecto: ${EFFECT_LABELS[incident.effect]}. Alcance: ${incident.pedestrianImpact ? 'Tramos completos' : 'Área de prueba'}.`}
+              : `Efecto: ${EFFECT_LABELS[incident.effect]}. Alcance: ${incident.placementKind === 'segment' ? 'Tramos completos' : 'Área de prueba'}.`}
           </p>
 
           <p>

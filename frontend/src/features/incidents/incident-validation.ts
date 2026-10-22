@@ -128,6 +128,12 @@ export function isIncident(
     && (
       value.surfaceImpact == null
       || isSurfaceImpact(value.surfaceImpact)
+      || (
+        isRecord(value.surfaceImpact)
+        && value.surfaceImpact.representation === 'map'
+        && isArea(value.surfaceImpact.geometry)
+        && isArea(value.surfaceImpact.collisionGeometry)
+      )
     )
     && isBounds(value.blockedArea)
     && isDateString(value.createdAt)
