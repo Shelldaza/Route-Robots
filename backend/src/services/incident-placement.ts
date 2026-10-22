@@ -119,6 +119,7 @@ export function initialSurfaceBox(
 
 export async function placeIncident(
     input: z.infer<typeof placementSchema>,
+    signal?: AbortSignal,
 ) {
     const context = await getSurfaceContext(
         input.simulationId,
@@ -148,11 +149,12 @@ export async function placeIncident(
     );
 
     const surfaces = (
-        await queryWalkSurfaces(bounds)
+        await queryWalkSurfaces(bounds, 'current', signal)
     ).filter((surface) =>
         [1480, 1483].includes(surface.code)
     );
 
+    signal?.throwIfAborted();
     const near = queryPedestrianSegments(
         bounds,
         1001,

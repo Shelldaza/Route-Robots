@@ -1,16 +1,10 @@
+import { errorMessage, fetchJson } from '../api/client.ts';
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import RobotModelForm from './RobotModelForm'
+import { DATA_SOURCES, isRobot, isRobotModel, requiredWidth } from '../utils/robot-models';
 
-import {
-  DATA_SOURCES,
-  errorMessage,
-  fetchJson,
-  isRobot,
-  isRobotModel,
-  requiredWidth,
-} from '../utils/robot-models'
 
 import type {
   Robot,
