@@ -8,7 +8,9 @@
 
 El proyecto ha demostrado un funcionamiento correcto durante las distintas pruebas y verificaciones(manuales y automaticas) realizadas a lo largo del desarrollo. Sin embargo, reconozco que durante el desarrollo cometí errores en la trazabilidad de las decisiones técnicas y en el registro de las verificaciones manuales.
 
-Durante el desarrollo inicial prioricé la implementación funcional y el despliegue. Al ser el único integrante del proyecto, la carga de trabajo fue considerable y no mantuve un registro sistemático de todas las verificaciones realizadas.
+Esto se refiere a más que nada para la parte sobre la IA y las decisiones, mientras que las issues y demás con sus criterios de aprobación si estan presente mediante la función projects de Github.
+
+Durante el desarrollo inicial prioricé la implementación funcional y el despliegue. Al ser el único integrante del proyecto, la carga de trabajo fue considerable y no mantuve un registro sistemático de la IA.
 
 Por este motivo, decidí iniciar una auditoría técnica retrospectiva antes de continuar con el proyecto para revisar el código actual en profundidad, identificar posibles problemas, realizar las correcciones necesarias, mejorar la documentación y las prácticas de desarrollo a partir de esta etapa.
 
@@ -44,3 +46,23 @@ Cada componente será revisado mediante el siguiente procedimiento:
 6. **Control de versiones:** guardar cambios mediante commits descriptivos.
 
 Las intervenciones de inteligencia artificial se documentarán en `AI-DECISIONS.md`.
+
+## 3. Estado inicial del sistema
+
+### 3.1. Versión de referencia
+
+La auditoría tomará como referencia el commit 022f0d4, correspondiente al último merge realizado en la rama main, proveniente de una rama de refactorización.
+
+Este será el punto de partida para revisar el estado del proyecto y registrar las correcciones y mejoras realizadas durante la auditoría.
+
+### 3.2. Funcionalidades existentes
+
+Identificar qué funcionalidades están implementadas y cuáles están incompletas
+
+3.3. Verificaciones existentes
+
+Identificar qué pruebas automatizadas, workflows de CI/CD y mecanismos de verificación ya existen.
+
+3.4. Problemas conocidos
+
+Registrar errores o limitaciones que ya conocemos antes de empezar a revisar el código.
