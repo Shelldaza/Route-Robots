@@ -1,31 +1,28 @@
 import * as L from 'leaflet'
 
-import type { PedestrianSegment, PedestrianNetwork, PedestrianImpact } from '../../../shared/contracts/pedestrian'
-import type { Bounds } from '../../../shared/contracts/geography'
-export type { PedestrianSegment, PedestrianNetwork, PedestrianImpact } from '../../../shared/contracts/pedestrian'
+import type {
+  PedestrianSegment,
+  PedestrianNetwork,
+} from '../../../shared/contracts/pedestrian'
 
-export function isPedestrianImpact(value: unknown): value is PedestrianImpact {
-  if (!value || typeof value !== 'object') return false
-  const item = value as Record<string, unknown>
-  return typeof item.networkVersion === 'string' &&
-    (item.scope === 'segment' || item.scope === 'street_section') &&
-    Array.isArray(item.segmentIds) && item.segmentIds.length > 0 &&
-    item.segmentIds.every((id) => typeof id === 'string') &&
-    Array.isArray(item.segments) && item.segments.length === item.segmentIds.length &&
-    item.segments.every(isPedestrianSegment) &&
-    item.segments.every((segment) => (item.segmentIds as string[]).includes(segment.id))
-}
-function isPedestrianSegment(value: unknown): value is PedestrianSegment {
-  if (!value || typeof value !== 'object') return false
-  const item = value as Record<string, unknown>
-  return typeof item.id === 'string' && typeof item.wayId === 'number' &&
-    typeof item.from === 'string' && typeof item.to === 'string' && typeof item.name === 'string' &&
-    ['sidewalk', 'crossing', 'path'].includes(String(item.kind)) &&
-    Array.isArray(item.coordinates) && item.coordinates.length >= 2 &&
-    item.coordinates.every((p) => Array.isArray(p) && p.length === 2 &&
-      typeof p[0] === 'number' && Number.isFinite(p[0]) && Math.abs(p[0]) <= 180 &&
-      typeof p[1] === 'number' && Number.isFinite(p[1]) && Math.abs(p[1]) <= 90)
-}
+import type {
+  Bounds,
+} from '../../../shared/contracts/geography'
+
+import {
+  isPedestrianSegment,
+} from './pedestrian-validation'
+
+export {
+  isPedestrianImpact,
+} from './pedestrian-validation'
+
+export type {
+  PedestrianSegment,
+  PedestrianNetwork,
+  PedestrianImpact,
+} from '../../../shared/contracts/pedestrian'
+
 export async function fetchPedestrianNetwork(
   signal: AbortSignal,
   bounds?: Bounds,
@@ -50,10 +47,10 @@ export async function fetchPedestrianNetwork(
 
   if (!response.ok) {
     const message =
-      value &&
-        typeof value === 'object' &&
-        'message' in value &&
-        typeof value.message === 'string'
+      value
+      && typeof value === 'object'
+      && 'message' in value
+      && typeof value.message === 'string'
         ? value.message
         : 'No se pudo cargar la red peatonal.'
 
@@ -71,20 +68,20 @@ export async function fetchPedestrianNetwork(
     | undefined
 
   if (
-    typeof item.version !== 'string' ||
-    typeof item.name !== 'string' ||
-    typeof item.attribution !== 'string' ||
-    !Array.isArray(item.segments) ||
-    !item.segments.every(isPedestrianSegment) ||
-    !area ||
-    !['south', 'west', 'north', 'east'].every(
+    typeof item.version !== 'string'
+    || typeof item.name !== 'string'
+    || typeof item.attribution !== 'string'
+    || !Array.isArray(item.segments)
+    || !item.segments.every(isPedestrianSegment)
+    || !area
+    || !['south', 'west', 'north', 'east'].every(
       (key) =>
-        typeof area[key] === 'number' &&
-        Number.isFinite(area[key]),
-    ) ||
-    !(
-      Number(area.south) < Number(area.north) &&
-      Number(area.west) < Number(area.east)
+        typeof area[key] === 'number'
+        && Number.isFinite(area[key]),
+    )
+    || !(
+      Number(area.south) < Number(area.north)
+      && Number(area.west) < Number(area.east)
     )
   ) {
     throw new Error(
@@ -94,11 +91,19 @@ export async function fetchPedestrianNetwork(
 
   return value as PedestrianNetwork
 }
-export const segmentLabels = { sidewalk: 'Vereda', crossing: 'Cruce peatonal', path: 'Camino peatonal' }
+
+export const segmentLabels = {
+  sidewalk: 'Vereda',
+  crossing: 'Cruce peatonal',
+  path: 'Camino peatonal',
+}
 
 const MIN_PEDESTRIAN_ZOOM = 17
 
-const visibleCache = new Map<string, PedestrianNetwork>()
+const visibleCache = new Map<
+  string,
+  PedestrianNetwork
+>()
 
 export function drawPedestrianNetwork(
   map: L.Map,
@@ -115,19 +120,18 @@ export function drawPedestrianNetwork(
   const previewPaneName = 'pedestrian-incident-preview'
 
   const previewPane =
-    map.getPane(previewPaneName) ??
-    map.createPane(previewPaneName)
+    map.getPane(previewPaneName)
+    ?? map.createPane(previewPaneName)
 
-  // Por encima del recorrido y debajo de los marcadores.
+  // La selección aparece por encima del recorrido.
   previewPane.style.zIndex = '450'
-
-  // Los clics siguen llegando a las veredas.
   previewPane.style.pointerEvents = 'none'
 
   const previewRenderer = L.canvas({
     pane: previewPaneName,
     padding: 0.2,
   })
+
   const selected = new Set(selectedIds)
 
   const pinned = selectedSegments.length
@@ -168,10 +172,13 @@ export function drawPedestrianNetwork(
     layer.clearLayers()
 
     const unique = new Map(
-      segments.map((segment) => [segment.id, segment]),
+      segments.map((segment) => [
+        segment.id,
+        segment,
+      ]),
     )
 
-    // La selección se conserva aunque salga de la zona cargada.
+    // Una selección permanece visible aunque salga del área consultada.
     for (const segment of pinned) {
       unique.set(segment.id, segment)
     }
@@ -197,8 +204,6 @@ export function drawPedestrianNetwork(
         },
       ).addTo(layer)
 
-      // Refuerzo visual de la selección por encima del recorrido.
-      // La línea original conserva la interacción para quitarla.
       if (isSelected) {
         L.polyline(
           segment.coordinates.map(
@@ -218,8 +223,8 @@ export function drawPedestrianNetwork(
         const tooltip = document.createElement('span')
 
         tooltip.textContent =
-          `${segmentLabels[segment.kind]}` +
-          (segment.name ? ` · ${segment.name}` : '')
+          `${segmentLabels[segment.kind]}`
+          + (segment.name ? ` · ${segment.name}` : '')
 
         line.bindTooltip(tooltip)
         line.on('click', () => onSelect(segment))
@@ -238,8 +243,8 @@ export function drawPedestrianNetwork(
     }
 
     const key =
-      `${network.version}:` +
-      Object.values(area)
+      `${network.version}:`
+      + Object.values(area)
         .map((number) => number.toFixed(5))
         .join(':')
 
@@ -261,9 +266,9 @@ export function drawPedestrianNetwork(
         )
 
         if (
-          disposed ||
-          request.signal.aborted ||
-          currentSequence !== sequence
+          disposed
+          || request.signal.aborted
+          || currentSequence !== sequence
         ) {
           return
         }
@@ -274,9 +279,9 @@ export function drawPedestrianNetwork(
           )
         }
 
-        // Conserva únicamente las últimas zonas consultadas.
         if (visibleCache.size >= 12) {
-          const oldest = visibleCache.keys().next().value
+          const oldest =
+            visibleCache.keys().next().value
 
           if (oldest !== undefined) {
             visibleCache.delete(oldest)
@@ -287,9 +292,9 @@ export function drawPedestrianNetwork(
       }
 
       if (
-        disposed ||
-        request.signal.aborted ||
-        currentSequence !== sequence
+        disposed
+        || request.signal.aborted
+        || currentSequence !== sequence
       ) {
         return
       }
@@ -302,9 +307,9 @@ export function drawPedestrianNetwork(
         : 'No hay tramos peatonales mapeados en esta zona.'
     } catch (error) {
       if (
-        disposed ||
-        request.signal.aborted ||
-        currentSequence !== sequence
+        disposed
+        || request.signal.aborted
+        || currentSequence !== sequence
       ) {
         return
       }
@@ -331,13 +336,12 @@ export function drawPedestrianNetwork(
       onVisibleChange?.([])
 
       notice.textContent =
-        `Acercá el mapa a zoom ${MIN_PEDESTRIAN_ZOOM} ` +
-        'para ver las veredas y cruces.'
+        `Acercá el mapa a zoom ${MIN_PEDESTRIAN_ZOOM} `
+        + 'para ver las veredas y cruces.'
 
       return
     }
 
-    // Evita consultar repetidamente durante un mismo movimiento.
     timer = setTimeout(() => {
       void load(currentSequence)
     }, 180)
@@ -345,8 +349,8 @@ export function drawPedestrianNetwork(
 
   function dispose() {
     if (disposed) return
-    disposed = true
 
+    disposed = true
     clearTimeout(timer)
     controller?.abort()
 
