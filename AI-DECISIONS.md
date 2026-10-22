@@ -18,9 +18,9 @@
 
 **Problema:** Durante el desarrollo inicial no documenté sistemáticamente todas las intervenciones de IA ni las verificaciones y correcciones manuales realizadas.
 
-**Contexto:** Al desarrollar individualmente un proyecto de alcance considerable y con plazos académicos limitados, prioricé la implementación funcional sobre el registro documental. Reconozco que fue un error metodológico de mi parte.
+**Contexto:** Al desarrollar individualmente un proyecto de alcance considerable y con plazos académicos limitados, prioricé la implementación funcional sobre el registro documental de la IA. Reconozco que fue un error metodológico de mi parte.
 
-**Acción correctiva:** Mi intención no es ocultarlo ni recostruir falsamente documentación, si bien tengo los prompts y demás, no tengo intención de reconstruirlo, puesto que a lo largo de la carrera se me enseño a ser responsable y tener criterio propio, así que ahora corresponde realizar una auditoría retrospectiva, asumir errores y establecer un procedimiento de registro para las futuras intervenciones.
+**Acción correctiva:** Mi intención no es ocultarlo ni recostruir falsamente documentación, si bien tengo los prompts y demás a lo largo de la carrera se me enseño a ser responsable y tener criterio propio, así que ahora lo que corresponde no es cargar los diferentes prompts antiguos, si no realizar una auditoría retrospectiva, asumir errores y establecer un procedimiento de registro para las futuras intervenciones.
 
 El proceso y sus resultados se documentarán en `docs/AUDITORIA.md`.
 
