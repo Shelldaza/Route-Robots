@@ -4,13 +4,13 @@ Durante el desarrollo de RouteRobots fui comprendiendo que crear un SaaS hasta a
 
 En mi caso, al desarrollar el proyecto individualmente y tener que dedicar tiempo a otras materias y responsabilidades, me encontré con una carga de trabajo considerable. Esto me llevó a priorizar el avance funcional, incluso si eso significaba descuidar aspectos importantes como la documentación y la trazabilidad.
 
-También cometí errores en la organización del desarrollo. Algunos commits fueron en mi opinión grandes y ciertos Pull Requests acumularon cambios que podrían haberse dividido para facilitar su revisión (Sorpresa: el que revisaba también era yo). Son aspectos que considero necesario mejorar en futuros desarrollos.
+También cometí errores en la organización del desarrollo. Algunos commits fueron en mi opinión un poquito más grandes de lo que deberían si bien al comienzo hay muchas cosas para hacer, considero que mi forma de trabajar sería muy distinta si estuviera en grupo, por otro lado ciertos Pull Requests acumularon cambios que podrían haberse dividido para facilitar su revisión (Sorpresa: el que revisaba también era yo). Son aspectos que considero necesario mejorar en futuros desarrollos, aunque también al estar solo yo sé lo que estoy dando autorizando porque previamente lo verifique manualmente y automaticamente.
 
 El uso de inteligencia artificial me ayudó muchísimo a avanzar y resolver problemas técnicos que trabajando solo, me habrían llevado mucho más tiempo.
 
-También considero que depender demasiado de estas herramientas te puede dar una sensación de falta de dominio técnico sobre todo lo construido, Aunque el sistema funcione correctamente, eso no significa necesariamente que comprenda en profundidad todas las decisiones e implementaciones que lo componen.
+También considero que depender de más de estas herramientas te puede dar una sensación de falta de dominio técnico sobre todo lo construido, Aunque el sistema funcione correctamente y haya pasado verificaciones eso no significa necesariamente que comprenda en profundidad todas las decisiones e implementaciones que lo componen.
 
-Por eso con la auditoría quiero recuperar ese sentimiento de control total, revisar las decisiones tomadas, comprender el funcionamiento de cada componente y mejorar mi forma de desarrollar.
+Por eso con la auditoría quiero recuperar ese sentimiento de dominio técnico, revisar las decisiones tomadas anteriormente, comprender el funcionamiento de cada componente y mejorar mi forma de desarrollar.
 
 Aunque realmente tome muchisimas decisiones y correciones solamente bueno no hay trazabilidad firme de esto.
 
