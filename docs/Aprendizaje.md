@@ -2,9 +2,9 @@
 
 Durante el desarrollo de RouteRobots fui comprendiendo que crear un SaaS hasta alcanzar un MVP puede requerir varios meses de trabajo, dependiendo de su complejidad.
 
-En mi caso, al desarrollar el proyecto individualmente y tener que dedicar tiempo a otras materias y responsabilidades, me encontré con una carga de trabajo considerable. Esto me llevó a priorizar el avance funcional, incluso si eso significaba descuidar aspectos importantes como la documentación y la trazabilidad.
+En mi caso, al desarrollar el proyecto individualmente y tener que dedicar tiempo a otras materias y responsabilidades, me encontré con una carga de trabajo considerable. Esto me llevó a priorizar el avance funcional, incluso si eso significaba descuidar aspectos importantes como la documentación de la IA y las verificaciones respecto a sus respuestas que iba llevando a cabo.
 
-También cometí errores en la organización del desarrollo. Algunos commits fueron en mi opinión un poquito más grandes de lo que deberían si bien al comienzo hay muchas cosas para hacer, considero que mi forma de trabajar sería muy distinta si estuviera en grupo, por otro lado ciertos Pull Requests acumularon cambios que podrían haberse dividido para facilitar su revisión (Sorpresa: el que revisaba también era yo). Son aspectos que considero necesario mejorar en futuros desarrollos, aunque también al estar solo yo sé lo que estoy dando autorizando porque previamente lo verifique manualmente y automaticamente.
+También cometí errores en la organización del desarrollo. Algunos commits fueron en mi opinión un poquito más grandes de lo que deberían si bien al comienzo hay muchas cosas para hacer, considero que mi forma de trabajar sería muy distinta si estuviera en grupo, por otro lado muy pocos Pull Requests acumularon cambios que podrían haberse dividido para facilitar su revisión (Sorpresa: el que revisaba también era yo). Son aspectos que considero necesario mejorar en futuros desarrollos, aunque también al estar solo, yo sé lo que estoy dando autorización porque previamente lo verifique manualmente y automaticamente.
 
 El uso de inteligencia artificial me ayudó muchísimo a avanzar y resolver problemas técnicos que trabajando solo, me habrían llevado mucho más tiempo.
 
