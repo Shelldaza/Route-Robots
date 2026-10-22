@@ -1,3 +1,5 @@
+import { requestRandomReport } from '../features/incidents/random-reports-api';
+import { errorMessage } from '../api/client';
 import type { Coordinate } from '../../../shared/contracts/geography'
 import {
   useEffect,
@@ -21,9 +23,6 @@ type Props = {
   scenarioTime: string
   coordinates: Coordinate[]
   disabled: boolean
-  validateIncident: (
-    value: unknown,
-  ) => value is Incident
   onReported: (incident: Incident) => void
 }
 
@@ -60,7 +59,6 @@ export default function RandomFleetReports({
   scenarioTime,
   coordinates,
   disabled,
-  validateIncident,
   onReported,
 }: Props) {
   const [generationId] = useState(
@@ -142,76 +140,20 @@ export default function RandomFleetReports({
       coordinates,
     })
 
+    const serializedBody = requestBodyRef.current
     const controller = new AbortController()
     controllerRef.current = controller
 
     async function send() {
       try {
-        const response = await fetch(
-          '/api/incidents/random',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: requestBodyRef.current,
-            signal: AbortSignal.any([
-              controller.signal,
-              AbortSignal.timeout(40000),
-            ]),
-          },
-        )
-
-        const body: unknown =
-          await response.json().catch(() => null)
-
-        if (
-          !mountedRef.current
-          || controller.signal.aborted
-        ) {
-          return
-        }
-
-        if (!response.ok) {
-          const detail =
-            body
-            && typeof body === 'object'
-            && 'message' in body
-            && typeof body.message === 'string'
-              ? body.message
-              : 'No se pudo registrar el reporte de la flota.'
-
-          throw new Error(detail)
-        }
-
-        if (
-          !body
-          || typeof body !== 'object'
-          || !('status' in body)
-        ) {
-          throw new Error(
-            'El servidor devolvió un reporte inválido.',
-          )
-        }
+        const body = await requestRandomReport(serializedBody, simulationId, controller.signal)
+        if (!mountedRef.current || controller.signal.aborted) return
 
         if (body.status === 'skipped') {
           setMessage(
             'No hay un tramo libre adecuado. Se reintentará en el próximo intervalo.',
           )
         } else {
-          if (
-            body.status !== 'created'
-            || !('incident' in body)
-            || !validateIncident(body.incident)
-            || body.incident.simulationId !== simulationId
-            || !('onRoute' in body)
-            || typeof body.onRoute !== 'boolean'
-          ) {
-            throw new Error(
-              'El servidor devolvió un reporte inválido.',
-            )
-          }
-
           const notice = {
             incident: body.incident,
             onRoute: body.onRoute,
@@ -246,11 +188,7 @@ export default function RandomFleetReports({
           mountedRef.current
           && !controller.signal.aborted
         ) {
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : 'No se pudo registrar el reporte.',
-          )
+          setError(errorMessage(caught))
         }
       } finally {
         pendingRef.current = false
@@ -274,7 +212,6 @@ export default function RandomFleetReports({
     error,
     nextAt,
     retryKey,
-    validateIncident,
     onReported,
   ])
 

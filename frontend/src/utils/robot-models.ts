@@ -11,12 +11,6 @@ export type {
   RobotModel,
 } from '../../../shared/contracts/robots.ts'
 
-// Compatibilidad temporal para los componentes existentes.
-// Los nuevos consumidores deben importar desde api/client.
-export {
-  fetchJson,
-  errorMessage,
-} from '../api/client.ts'
 
 // Las etiquetas pertenecen a la interfaz; los valores válidos están en el contrato.
 export const DATA_SOURCES = {

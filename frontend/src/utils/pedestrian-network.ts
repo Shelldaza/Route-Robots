@@ -1,17 +1,11 @@
+import { fetchPedestrianNetwork } from '../features/pedestrian/network-api';
+export { fetchPedestrianNetwork } from '../features/pedestrian/network-api';
 import * as L from 'leaflet'
 
 import type {
   PedestrianSegment,
   PedestrianNetwork,
 } from '../../../shared/contracts/pedestrian'
-
-import type {
-  Bounds,
-} from '../../../shared/contracts/geography'
-
-import {
-  isPedestrianSegment,
-} from './pedestrian-validation'
 
 export {
   isPedestrianImpact,
@@ -22,75 +16,6 @@ export type {
   PedestrianNetwork,
   PedestrianImpact,
 } from '../../../shared/contracts/pedestrian'
-
-export async function fetchPedestrianNetwork(
-  signal: AbortSignal,
-  bounds?: Bounds,
-): Promise<PedestrianNetwork> {
-  const query = bounds
-    ? `?${new URLSearchParams({
-      south: String(bounds.south),
-      west: String(bounds.west),
-      north: String(bounds.north),
-      east: String(bounds.east),
-    })}`
-    : ''
-
-  const response = await fetch(
-    `/api/pedestrian-network${query}`,
-    { signal },
-  )
-
-  const value: unknown = await response
-    .json()
-    .catch(() => null)
-
-  if (!response.ok) {
-    const message =
-      value
-      && typeof value === 'object'
-      && 'message' in value
-      && typeof value.message === 'string'
-        ? value.message
-        : 'No se pudo cargar la red peatonal.'
-
-    throw new Error(message)
-  }
-
-  if (!value || typeof value !== 'object') {
-    throw new Error('La red peatonal no es válida.')
-  }
-
-  const item = value as Record<string, unknown>
-
-  const area = item.bounds as
-    | Record<string, unknown>
-    | undefined
-
-  if (
-    typeof item.version !== 'string'
-    || typeof item.name !== 'string'
-    || typeof item.attribution !== 'string'
-    || !Array.isArray(item.segments)
-    || !item.segments.every(isPedestrianSegment)
-    || !area
-    || !['south', 'west', 'north', 'east'].every(
-      (key) =>
-        typeof area[key] === 'number'
-        && Number.isFinite(area[key]),
-    )
-    || !(
-      Number(area.south) < Number(area.north)
-      && Number(area.west) < Number(area.east)
-    )
-  ) {
-    throw new Error(
-      'La red peatonal recibida no es válida.',
-    )
-  }
-
-  return value as PedestrianNetwork
-}
 
 export const segmentLabels = {
   sidewalk: 'Vereda',

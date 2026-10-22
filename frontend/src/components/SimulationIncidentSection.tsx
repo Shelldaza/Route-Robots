@@ -17,10 +17,6 @@ import {
   useSimulationIncidents,
 } from '../hooks/useSimulationIncidents'
 
-import {
-  isIncident,
-} from '../features/incidents/incident-validation'
-
 import SurfaceIncidentEditor from './SurfaceIncidentEditor'
 import RandomFleetReports from './RandomFleetReports'
 import IncidentHistory from './IncidentHistory'
@@ -131,7 +127,6 @@ export default function SimulationIncidentSection(
             || busy
             || selectingLocation
           }
-          validateIncident={isIncident}
           onReported={model.onReported}
         />
       )}

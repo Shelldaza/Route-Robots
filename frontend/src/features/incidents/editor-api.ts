@@ -1,3 +1,4 @@
+import { isWalkSurface } from './incident-validation.ts';
 import type {
   IncidentEffect,
 } from '../../../../shared/contracts/incidents'
@@ -186,4 +187,18 @@ export async function saveEditorReport(
   body: object,
 ) {
   await fetchJson(endpoint, post(body))
+}
+// Solo se utiliza la capa actual para dibujar el editor.
+export async function requestWalkSurfaces(query: URLSearchParams, signal: AbortSignal) {
+  const value = await fetchJson(`/api/surfaces?${query}`, { signal })
+
+  if (
+    !isRecord(value)
+    || !Array.isArray(value.surfaces)
+    || !value.surfaces.every(isWalkSurface)
+  ) {
+    throw new Error('La cartografía recibida es inválida.')
+  }
+
+  return value.surfaces
 }
