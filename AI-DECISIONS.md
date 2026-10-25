@@ -54,3 +54,10 @@ Por otro lado, decidí que el cálculo de puntuaciones no debería depender de l
 - **Código / Arquitectura generada:** La IA propuso una nueva organización del README, actualizando la descripción del proyecto, sus objetivos y funcionalidades. No se generó código funcional.
 
 - **Validación y Corrección Humana:** Revisé la propuesta y continue con modificaciones para que las justificaciones reflejaran mis decisiones reales, yambién se diferenciaron las funcionalidades existentes de las previstas, evitando presentar características todavía no implementadas como terminadas. La versión definitiva del README quedará sujeta a la verificación del estado actual del proyecto durante la auditoría.
+
+## Corrección ortográfica de la documentación
+
+- **Problema abordado:** Necesitaba agilidad para corregir errores ortográficos y de puntuación en el texto de la auditoría en la sección 3.
+- **Prompt / Herramienta utilizada:** solicitud de revisión ortográfica mediante ChatGPT.
+- **Código / Arquitectura generada:** propuestas de corrección del texto.
+- **Validación y Corrección Humana:** revisé las correcciones y seleccioné las que incorporé al documento.
