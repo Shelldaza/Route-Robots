@@ -53,7 +53,7 @@ Por otro lado, decidí que el cálculo de puntuaciones no debería depender de l
 
 - **Código / Arquitectura generada:** La IA propuso una nueva organización del README, actualizando la descripción del proyecto, sus objetivos y funcionalidades. No se generó código funcional.
 
-- **Validación y Corrección Humana:** Revisé la propuesta y continue con modificaciones para que las justificaciones reflejaran mis decisiones reales, yambién se diferenciaron las funcionalidades existentes de las previstas, evitando presentar características todavía no implementadas como terminadas. La versión definitiva del README quedará sujeta a la verificación del estado actual del proyecto durante la auditoría.
+- **Validación y Corrección Humana:** Revisé la propuesta y continue con modificaciones para que las justificaciones reflejaran mis decisiones reales, y también se diferenciaron las funcionalidades existentes de las previstas, evitando presentar características todavía no implementadas como terminadas. La versión definitiva del README quedará sujeta a la verificación del estado actual del proyecto durante la auditoría.
 
 ## Corrección ortográfica de la documentación
 

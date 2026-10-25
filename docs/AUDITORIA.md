@@ -86,7 +86,7 @@ Estas implementaciones constituyen el punto de partida de la auditoría.
 - **Backend:** TypeScript comprueba los tipos, Vitest ejecuta las pruebas y Supertest verifica los endpoints HTTP. La persistencia y los servicios externos se simulan en las pruebas que corresponden.
 - **Frontend:** Oxlint analiza el código, TypeScript y Vite comprueban tipos y compilación, **node:test** ejecuta las pruebas.
 - **CI:** GitHub Actions ejecuta estas verificaciones en pull requests a **main** utilizando Node.js 24.
-- **Comprobaciones operativas:** **/api/health** verifica que la API responde; **npm run db:check** comprueba la conexión con PostgreSQL.
+- **Comprobaciones operativas:** **/api/health** verifica que la API responde **npm run db:check** comprueba la conexión con PostgreSQL.
 
 **Antecedente de ejecución:** 285 pruebas del backend y 83 del frontend aprobadas, con tipos, lint y compilación correctos.
 
@@ -156,7 +156,7 @@ Route-Robots/
 │       │   ├── incident-detail.ts    # Recupera un reporte individual con sus geometrías completas
 │       │   ├── incident-placement.ts # Convierte el clic en un rectángulo orientado o una selección de tramo
 │       │   │
-│       │   ├── routing.ts            # Usa la red local si hay una versión asociada, en otro caso consulta OpenRouteService
+│       │   ├── routing.ts            # Usa la red local si hay una versión asociada, si no consulta OpenRouteService
 │       │   ├── routing-restrictions.ts
 │       │   │                         # Distingue cierres por área, tramo y superficie y valida la alternativa
 │       │   ├── routing-evaluation.ts # Resume incidentes para Claude y detecta cambios durante la evaluación
@@ -183,7 +183,7 @@ Route-Robots/
 │       │   ├── surface-evaluation.ts # Reutiliza incidentes y cartografía durante una misma evaluación
 │       │   ├── surface-routing.ts    # Verifica el recorrido preferido y solicita adaptación o recuperación
 │       │   ├── surface-routing-core.ts
-│       │   │                         # Intenta rodear el obstáculo; si falla, busca otra ruta con restricciones
+│       │   │                         # Intenta rodear el obstáculo. si falla, busca otra ruta con restricciones
 │       │   ├── surface-route-recovery.ts
 │       │   │                         # Busca conexiones por caminos libres, permitiendo retroceder hasta ellas
 │       │   │
@@ -347,156 +347,3 @@ Route-Robots/
 ├── AI-DECISIONS.md                    # Registra la asistencia de IA y la revisión humana
 └── README.md                         # Presenta el proyecto, su alcance y cómo acceder a él
 ```
-
-**Cómo se relacionan las partes principales**
-
-- **Registrar un robot:** el formulario envía los datos al endpoint de robots; los esquemas comprueban los campos, el servicio trata las condiciones del registro y el repositorio ejecuta la operación en PostgreSQL.
-- **Dibujar un incidente:** el mapa envía el punto seleccionado; el backend consulta las superficies, propone el rectángulo y comprueba el espacio libre. El usuario ajusta y confirma la selección antes de guardarla.
-- **Solicitar un desvío:** el frontend pausa el escenario y envía la posición y el recorrido pendientes. Claude solicita herramientas MCP; el backend calcula y valida la alternativa. El frontend comprueba su continuidad antes de cargarla.
-
-**Preparación y uso de la red compacta**
-
-La preparación convierte la captura original de caminos en listas de puntos, conexiones y distancias y genera un archivo `.bin`. Al iniciar el backend, ese archivo se carga y valida. Después, las consultas por zona y el cálculo de rutas utilizan esas listas.
-
-El grafo representa **qué puntos están conectados por caminos**. El formato binario permite conservar esa información con menos sobrecarga de memoria que el JSON original. Las superficies se utilizan adicionalmente para comprobar si el robot puede rodear un obstáculo dentro del espacio peatonal disponible.
-
-## 4. Auditoría del backend
-
-### 4.1. API y endpoints
-Revisar las rutas HTTP, parámetros recibidos, respuestas, validaciones y manejo de errores.
-
-### 4.2. Servicios y lógica de negocio
-Analizar las responsabilidades de los servicios, sus dependencias y las reglas que implementan.
-
-### 4.3. Persistencia y base de datos
-Revisar repositorios, consultas SQL, migraciones, integridad de datos y tratamiento de errores.
-
-### 4.4. Planificación y evaluación de rutas
-Comprobar los algoritmos de cálculo, restricciones, costos, alternativas y condiciones en las que una ruta puede considerarse válida.
-
-### 4.5. Simulación e incidentes
-Verificar el desplazamiento simulado, los reportes manuales y aleatorios, su vigencia y la replanificación.
-
-### 4.6. Integración de IA y MCP
-Revisar las herramientas disponibles para la IA, sus permisos, la validación de sus resultados y los mecanismos de control implementados en el backend.
-
----
-
-## 5. Auditoría del frontend
-
-### 5.1. Organización de componentes
-Revisar las responsabilidades de páginas, componentes, hooks y funcionalidades.
-
-### 5.2. Gestión de estado
-Verificar cómo se administra y actualiza el estado de rutas, robots, incidentes y simulaciones.
-
-### 5.3. Comunicación con el backend
-Comprobar las solicitudes HTTP, validaciones, respuestas y tratamiento de errores.
-
-### 5.4. Interfaz y experiencia de usuario
-Identificar problemas de navegación, presentación, accesibilidad y comportamiento de los elementos interactivos.
-
----
-
-## 6. Integración y servicios externos
-
-### 6.1. Integración frontend-backend
-Verificar mediante pruebas que los componentes intercambien correctamente la información.
-
-### 6.2. Servicios externos
-Revisar las integraciones geográficas, la información de rutas y los proveedores de IA utilizados.
-
-### 6.3. Manejo de fallos
-Comprobar qué sucede ante respuestas inválidas, demoras, interrupciones o indisponibilidad de servicios externos.
-
----
-
-## 7. Seguridad
-
-### 7.1. Validación de entradas
-Comprobar que las solicitudes recibidas sean validadas y que se rechacen entradas incorrectas.
-
-### 7.2. Configuración y secretos
-Revisar variables de entorno, credenciales, permisos y posibles exposiciones de información sensible.
-
-### 7.3. Dependencias
-Identificar vulnerabilidades conocidas y evaluar si requieren actualizaciones o medidas de mitigación.
-
-### 7.4. Limitaciones de seguridad
-Registrar los controles existentes, los faltantes y los riesgos aceptados para el alcance académico del proyecto.
-
----
-
-## 8. Pruebas y calidad
-
-### 8.1. Pruebas existentes
-Ejecutar las pruebas actuales y registrar sus resultados, fecha y commit correspondiente.
-
-### 8.2. Cobertura y casos faltantes
-Identificar comportamientos importantes que todavía no estén suficientemente verificados.
-
-### 8.3. Nuevas pruebas
-Incorporar pruebas cuando se detecten errores o riesgos que justifiquen su implementación.
-
-### 8.4. Calidad y mantenibilidad
-Revisar duplicaciones, complejidad, tipado, organización y oportunidades de refactorización.
-
----
-
-## 9. CI/CD y despliegue
-
-### 9.1. GitHub Actions
-Revisar los workflows, sus disparadores y las verificaciones que ejecutan.
-
-### 9.2. Despliegue en Vercel y Render
-Comprobar la configuración de los servicios y el funcionamiento de los entornos desplegados.
-
-### 9.3. Observabilidad
-Revisar logs, manejo de errores y mecanismos disponibles para diagnosticar problemas.
-
-### 9.4. Disponibilidad y recuperación
-Evaluar el comportamiento del sistema ante fallos y las limitaciones de la infraestructura utilizada.
-
----
-
-## 10. Registro de hallazgos y correcciones
-
-Centralizar los problemas identificados durante la auditoría.
-
-| ID | Componente | Hallazgo | Prioridad | Estado | Commit |
-|---|---|---|---|---|---|
-| AUD-001 | — | — | — | — | — |
-
-Cada hallazgo deberá indicar brevemente qué problema se encontró, cómo se comprobó y qué corrección se realizó o quedó pendiente.
-
----
-
-## 11. Resultados de la auditoría
-
-### 11.1. Problemas identificados y corregidos
-Resumir los principales hallazgos y las correcciones implementadas.
-
-### 11.2. Pruebas y verificaciones finales
-Registrar los resultados finales de las pruebas, compilaciones y comprobaciones de integración.
-
-### 11.3. Limitaciones pendientes
-Identificar problemas que no se resolvieron y justificar cuáles se posponen.
-
-### 11.4. Comparación con el estado inicial
-Describir qué cambió respecto del commit de referencia `022f0d4`.
-
----
-
-## 12. Conclusiones
-
-### 12.1. Estado final del proyecto
-Evaluar el estado técnico del sistema después de la auditoría, según las evidencias obtenidas.
-
-### 12.2. Aprendizajes y mejoras metodológicas
-Resumir qué prácticas de desarrollo, verificación y documentación se mejoraron.
-
-### 12.3. Próximos pasos
-Identificar las prioridades para continuar con el desarrollo funcional de RouteRobots.
-
-### 12.4. Cierre de auditoría
-Registrar el commit final, el Pull Request correspondiente y los resultados de las verificaciones previas a su integración.
