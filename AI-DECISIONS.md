@@ -61,3 +61,55 @@ Por otro lado, decidí que el cálculo de puntuaciones no debería depender de l
 - **Prompt / Herramienta utilizada:** solicitud de revisión ortográfica mediante ChatGPT.
 - **Código / Arquitectura generada:** propuestas de corrección del texto.
 - **Validación y Corrección Humana:** revisé las correcciones y seleccioné las que incorporé al documento.
+
+## Almacenamiento de superficies complementarias
+- **Problema abordado:**
+Existen faltantes de superficies en lugares donde la red peatonal contiene caminos. Se necesita incorporar polígonos complementarios sin desarrollar una administración innecesaria para la demo.
+
+- **Prompt / Herramienta utilizada:**
+ChatGPT: «¿Es necesaria una tabla para las superficies que completaré manualmente o conviene mantenerlas en un archivo versionado? Evaluá la alternativa según la edición prevista y su incorporación al mapa y al cálculo geométrico».
+
+- **Código / Arquitectura generada:**
+Inicialmente se propuso manual_walk_surfaces. Después se reconsideró esa solución y se recomendó un GeoJSON versionado en el repositorio, leído por el backend junto con las superficies oficiales.
+
+- **Validación y Corrección Humana:**
+Elegí el archivo porque las correcciones serán mantenidas por mí y no requieren edición desde la aplicación. Los polígonos deberán identificar su procedencia; dibujarlos no demuestra que sean transitables. Queda pendiente comprobar que se utilicen tanto en el mapa como en las evaluaciones, sin crear conexiones indebidas entre caminos.
+
+
+### Separar la replanificación del uso de IA
+
+**Problema abordado:**  
+Durante la revisión observé que Claude interviene para solicitar consultas y cálculos que ya están implementados en el backend. Esta dependencia no aporta a mi objetivo principal para la IA: interpretar reportes de robots y generar instrucciones preventivas sobre el recorrido.
+
+**Prompt / Herramienta utilizada:**  
+ChatGPT Quiero trasladar la coordinación del desvío al backend y reservar la IA para interpretar incidentes y preparar instrucciones preventivas. Revisá las dependencias de `agents`, las ventajas y desventajas del cambio y qué controles debemos conservar antes de retirarlo, esto para agilizar la replanificación puesto que en principio crei que esto le daría valor al proyecto con la IA de esta forma, pero la verdad creo que simplemente lo esta realentizando.
+
+**Código / Arquitectura generada:**  
+Se propuso organizar la replanificación como un servicio independiente de Claude, actualizar sus consumidores y separar las funciones de interpretación y generación de informes.
+
+**Validación y Corrección Humana:**  
+Decidí retirar la intermediación de IA en una secuencia de pasos obligatorios y conservar el cálculo y sus validaciones en el backend. La consulta se utilizó para contrastar la decisión e identificar las dependencias que deben actualizarse. Se mantendrán el contexto fijo, la lectura final de incidentes y la comparación de su contenido. La reducción de llamadas al proveedor deberá comprobarse mediante pruebas y mediciones de tiempo.
+
+
+### Reducción de la superficie de ataque
+
+**Problema abordado:**  
+Al retirar OpenRouteService, busqué reducir las integraciones y credenciales que debe mantener el MVP.
+
+**Prompt / Herramienta utilizada:**  
+ChatGPT: «¿Eliminar una integración externa que ya no necesitamos reduce la superficie de ataque? 
+
+**Código / Arquitectura generada:**  
+Se recomendó retirar el adaptador, la configuración de su clave y el modo que permite solicitar rutas externas, porque no tiene sentido mantenerlo para un futuro.
+
+**Validación y Corrección Humana:**  
+Decidí incluir esa limpieza en el cambio. El beneficio es reducir código expuesto y credenciales que proteger; no implica que el proveedor sea inseguro ni sustituye los controles de acceso y límites de solicitudes.
+
+
+### Auditoría del backend — Sección 4
+
+**Consulta:** Solicité ayuda para ordenar las observaciones que fui reuniendo al revisar el backend y contrastarlas con el alcance del MVP.
+
+**Aporte de la IA:** Colaboró en la revisión de los puntos planteados, sus consecuencias y las posibles correcciones. También ayudó a estructurar los hallazgos sobre API, persistencia, geometría y replanificación, distinguiendo observaciones de código, reproducciones aisladas y cambios pendientes.
+
+**Decisión:** Documentar las correcciones justificadas y conservar los controles útiles, evitando refactorizaciones que no aporten al objetivo del proyecto.
