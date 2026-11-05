@@ -10,13 +10,7 @@
 
 ### 1.1. Contexto
 
-El proyecto ha demostrado un funcionamiento correcto durante las distintas pruebas y verificaciones(manuales y automaticas) realizadas a lo largo del desarrollo. Sin embargo, reconozco que durante el desarrollo cometí errores en la trazabilidad de las decisiones técnicas y en el registro de las verificaciones manuales.
-
-Esto se refiere a más que nada para la parte sobre la IA y las decisiones, mientras que las issues y demás con sus criterios de aprobación si estan presente mediante la función projects de Github.
-
-Durante el desarrollo inicial prioricé la implementación funcional y el despliegue. Al ser el único integrante del proyecto, la carga de trabajo fue considerable y no mantuve un registro sistemático de la IA.
-
-Por este motivo, decidí iniciar una auditoría técnica retrospectiva antes de continuar con el proyecto para revisar el código actual en profundidad, identificar posibles problemas, realizar las correcciones necesarias, mejorar la documentación y las prácticas de desarrollo a partir de esta etapa.
+El proyecto ha demostrado un funcionamiento correcto durante las distintas pruebas y verificaciones(manuales y automaticas) realizadas a lo largo del desarrollo. Sin embargo, para saber hacia donde vamos hay que saber donde estamos, entonces decidí iniciar una auditoría técnica retrospectiva antes de continuar con el proyecto para revisar el código actual en profundidad, identificar posibles problemas, realizar las correcciones necesarias, mejorar las prácticas de desarrollo a partir de esta etapa, para tener aún mayor seguridad y claridad en nuestro proyecto.
 
 ### 1.2. Objetivos
 
@@ -28,7 +22,6 @@ Por este motivo, decidí iniciar una auditoría técnica retrospectiva antes de 
 - Detectar errores, riesgos y problemas de seguridad.
 - Aplicar correcciones justificadas.
 - Incorporar pruebas reproducibles cuando corresponda.
-- Mejorar la trazabilidad de las decisiones técnicas y del uso de IA.
 
 ### 1.3. Alcance
 
