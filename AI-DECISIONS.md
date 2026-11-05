@@ -277,7 +277,281 @@
 - **Validación y Corrección Humana:** Se incorporaron pruebas para recuperar eventos existentes y obtener identificadores distintos entre eventos y simulaciones. Se revisó que una versión de red incompatible se rechazara antes de generar el reporte. Esta implementación evita duplicados por ID, pero todavía no compara el contenido completo de un reintento con el registro existente. Referencia: commit `c1d8813`.
 
 
+## Integración de reportes automáticos con el escenario
 
+- **Problema abordado:** Incorporar los incidentes generados por la flota al mapa y al historial, respetando el reloj simulado y las operaciones en curso.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo conectar el generador del backend con la simulación y procesar los reportes sin enviar solicitudes simultáneas.
+- **Código / Arquitectura generada:** Se agregó `RandomFleetReports`, que solicita los eventos al alcanzar su fecha programada. La generación espera durante la edición y otras operaciones que bloquean los controles. Los incidentes recibidos se integran al estado compartido mediante su identificador.
+- **Validación y Corrección Humana:** Se revisó que la respuesta incluyera un incidente válido de la simulación actual y que se distinguieran los resultados `created` y `skipped`. La combinación por ID evita duplicar entradas en el estado local y permite conservar reportes recibidos durante una actualización del historial. Referencia: commit `0fc39c0`.
+
+## Notificaciones de la flota simulada
+
+- **Problema abordado:** Comunicar la aparición de incidentes sin exigir que el usuario revise continuamente el historial.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para mostrar avisos breves con el robot informante, el tipo de incidente y su ubicación aproximada.
+- **Código / Arquitectura generada:** Se incorporó una notificación emergente con cierre manual y duración de ocho segundos reales, junto con una lista de los ocho reportes más recientes. Se muestran el efecto y la relación con el recorrido al momento de generar el reporte.
+- **Validación y Corrección Humana:** Se revisó que los mensajes identificaran a la flota como simulada y la ubicación como aproximada. Se incluyeron anuncios de estado mediante `aria-live="polite"` y limpieza del temporizador. La lista reciente se mantuvo separada del historial completo de incidentes. Referencia: commit `0fc39c0`.
+
+## Conservación del contexto al reintentar reportes
+
+- **Problema abordado:** Evitar que un reintento cambiara los datos del evento después de un error de conexión o una respuesta perdida.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo conservar la solicitud original y detener los reintentos automáticos cuando se produce un fallo.
+- **Código / Arquitectura generada:** Se conserva el cuerpo enviado, incluidos generación, índice, fecha y coordenadas. Ante un error se ofrece un reintento manual. También se cancela la solicitud al desmontar el componente y se descartan respuestas canceladas.
+- **Validación y Corrección Humana:** Se revisó que el índice avanzara únicamente después de recibir un reporte creado y que un resultado omitido programara otro intervalo sin consumirlo. El reintento reutiliza el mismo cuerpo, apoyándose en los identificadores estables del backend. Esto no resuelve por sí solo la coherencia entre la fecha y el recorrido de eventos atrasados. Referencia: commit `0fc39c0`.
+
+## Catálogo de modelos de robots
+
+- **Problema abordado:** Consultar y registrar perfiles operativos que pudieran utilizarse al incorporar distintas unidades de robot.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo exponer un catálogo de modelos con capacidades, dimensiones y procedencia de los datos.
+- **Código / Arquitectura generada:** Se agregaron los endpoints `GET /api/robot-models` y `POST /api/robot-models`, con validación mediante Zod y consultas parametrizadas. Los campos opcionales desconocidos se normalizan a `null`.
+- **Validación y Corrección Humana:** Se revisaron los valores positivos para velocidad, batería, consumo y dimensiones conocidas. Se distinguió un margen de cero de uno desconocido y se exigieron notas para perfiles declarados como medidos o documentados. Esta versión todavía no incorpora los máximos operativos definidos posteriormente en la auditoría. Referencia: commit `0c977f7`.
+
+## Registro de unidades asociadas a un modelo
+
+- **Problema abordado:** Evitar que cada unidad duplicara sus capacidades o permitiera sobrescribir las del modelo seleccionado.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para adaptar la API de robots al registro mediante nombre y `modelId`, recuperando las capacidades desde el modelo almacenado.
+- **Código / Arquitectura generada:** El registro pasó a utilizar un esquema estricto y una operación `INSERT ... SELECT` que requiere la existencia del modelo. Las consultas devuelven los datos de la unidad junto con las características de su modelo.
+- **Validación y Corrección Humana:** Se revisó que el cliente no pudiera enviar capacidades adicionales y que un modelo inexistente produjera `404` sin insertar la unidad. Se conservaron respuestas controladas para duplicados y fallos internos. Referencia: commit `0c977f7`.
+
+## Pruebas de los contratos de modelos y unidades
+
+- **Problema abordado:** Comprobar el nuevo registro por modelo y evitar que solicitudes inválidas llegaran a la base.
+- **Prompt / Herramienta utilizada:** Se solicitó apoyo a ChatGPT para definir pruebas de los endpoints, incluyendo datos desconocidos, campos adicionales y errores de persistencia.
+- **Código / Arquitectura generada:** Se incorporaron pruebas con Supertest y Vitest y se actualizaron las de robots. Cubren consultas, altas, medidas opcionales, procedencia, modelos inexistentes, duplicados y errores internos.
+- **Validación y Corrección Humana:** Se revisó que las expectativas comprobaran los parámetros enviados al SQL, el rechazo de capacidades en el registro de unidades y la ausencia de detalles privados en las respuestas de error. Las pruebas simulan el pool y no demuestran la ejecución de las consultas ni las restricciones en PostgreSQL real. Referencia: commit `0c977f7`.
+
+## Consulta sobre la selección de modelos y sus capacidades
+
+- **Problema abordado:** Adaptar la preparación del robot al catálogo de modelos, evitando pedir las mismas capacidades al registrar cada unidad.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo organizar la interfaz para seleccionar un modelo, mostrar sus características y permitir agregar nuevas configuraciones al catálogo.
+- **Código / Arquitectura generada:** Se propuso separar el formulario de modelos del registro de unidades y presentar un resumen de las capacidades del modelo elegido.
+- **Validación y Corrección Humana:** Se adoptó el registro de unidades mediante nombre y modelo. Se mantuvieron visibles las medidas desconocidas como “Sin información” y se distinguieron los perfiles simulados de los documentados o medidos. El ancho requerido se presentó como una referencia geométrica, sin afirmar que certificara el paso. Referencia: commit `d493425`.
+
+## Implementación de formularios y validación de respuestas
+
+- **Problema abordado:** Conectar el nuevo flujo con la API y comprobar los datos antes de incorporarlos al estado de la aplicación.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para implementar `RobotModelForm`, actualizar `RobotSetupSection` y preparar validadores y pruebas de los perfiles recibidos.
+- **Código / Arquitectura generada:** Se incorporaron la consulta del catálogo, el alta de modelos, el registro de unidades por `modelId` y los mensajes de carga, error y confirmación. Se agregaron validadores y el cálculo `ancho + 2 × margen lateral`.
+- **Validación y Corrección Humana:** Se revisó que las respuestas se comprobaran antes de utilizarlas y que el registro de unidades no enviara capacidades independientes. Se incorporaron pruebas de medidas inválidas, valores desconocidos y margen cero. El cálculo del ancho devuelve `null` cuando falta información o el resultado no es finito. Las pruebas no verifican por sí solas el funcionamiento completo de los formularios en navegador. Referencia: commit `d493425`.
+
+## Consulta de superficies peatonales de Washington
+
+- **Problema abordado:** Obtener polígonos que representaran el espacio peatonal disponible, complementando las líneas utilizadas por el grafo.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo incorporar superficies de DC GIS y distinguir la capa actual de la captura histórica de 2023.
+- **Código / Arquitectura generada:** Se agregó `queryWalkSurfaces()` para consultar ambas fuentes por zona. Las solicitudes piden GeoJSON en coordenadas geográficas y el servicio convierte los polígonos a una representación común `MultiPolygon`.
+- **Validación y Corrección Humana:** Se revisaron los identificadores de las capas, los parámetros de consulta y la conservación de identificadores y categorías. Se incorporaron pruebas con respuestas simuladas para comprobar la fuente seleccionada y el sistema de coordenadas solicitado. Este commit incorpora la consulta, no determina por sí solo la transitabilidad de cada superficie. Referencia: commit `cba340f`.
+
+## Control de cobertura y respuestas incompletas
+
+- **Problema abordado:** Evitar que el cálculo utilizara cartografía inválida, truncada o correspondiente a consultas demasiado extensas.
+- **Prompt / Herramienta utilizada:** Se pidió orientación a ChatGPT sobre qué comprobaciones aplicar antes de aceptar las superficies de un proveedor externo.
+- **Código / Arquitectura generada:** Se limitaron la zona consultable, la cantidad de superficies, el tamaño de respuesta y el número de vértices. También se incorporaron comprobaciones de estructura, coordenadas y señales de truncamiento del proveedor.
+- **Validación y Corrección Humana:** Se agregaron pruebas para rechazar vistas amplias antes de descargar, respuestas truncadas y fallos de conexión. Se mantuvo el rechazo ante indisponibilidad, sin fabricar veredas. Los controles de tamaño y vértices se aplican después de cargar o procesar los datos, por lo que todavía no evitan todo el consumo previo de memoria. Referencia: commit `cba340f`.
+
+## Reutilización de consultas cartográficas
+
+- **Problema abordado:** Reducir consultas repetidas al proveedor cuando se solicita una misma zona o áreas cercanas.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo incorporar una caché acotada sin mezclar superficies actuales con las históricas.
+- **Código / Arquitectura generada:** Los límites se ajustan a una cuadrícula y se utilizan como clave junto con la fuente. La caché conserva hasta ocho consultas durante cinco minutos.
+- **Validación y Corrección Humana:** Se incorporó una prueba que solicita ambas fuentes y repite la consulta actual, comprobando que reutilice su resultado sin devolver el histórico. Esta versión almacena resultados completos, pero todavía no comparte solicitudes simultáneas pendientes. Referencia: commit `cba340f`.
+
+## Evaluación del espacio disponible según el robot
+
+- **Problema abordado:** Determinar si un obstáculo ocupa todo el paso disponible o si un robot puede rodearlo dentro de la superficie peatonal.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo representar el espacio necesario para el robot a partir de su ancho y margen lateral.
+- **Código / Arquitectura generada:** Se incorporó `makeConstraint()`, que reduce el espacio utilizable junto a los bordes y amplía los obstáculos según el radio del robot, con tolerancias geométricas adicionales.
+- **Validación y Corrección Humana:** Se incorporaron pruebas con un mismo obstáculo para un robot estrecho y otro ancho. También se contemplaron obstáculos que cierran conjuntamente el paso. La evaluación depende de la geometría y las dimensiones recibidas, sin constituir una certificación de seguridad física. Referencia: commit `8b69556`.
+
+## Operaciones sobre superficies y obstáculos
+
+- **Problema abordado:** Combinar superficies, recortar áreas afectadas y conservar los huecos que no pueden utilizarse para circular.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para implementar operaciones de unión, intersección, diferencia y ampliación de polígonos.
+- **Código / Arquitectura generada:** Se agregaron utilidades basadas en `clipper-lib`, utilizando coordenadas locales en metros para realizar las operaciones y reconstruir las geometrías resultantes.
+- **Validación y Corrección Humana:** Se incorporaron pruebas de recorte del incidente a la vereda, conservación de huecos y unión de superficies contiguas. También se incluyó un caso que rechaza conectar superficies separadas por un espacio sin cartografiar. Referencia: commit `8b69556`.
+
+## Búsqueda de maniobras alrededor de obstáculos
+
+- **Problema abordado:** Adaptar la parte afectada de un recorrido sin descartar toda una conexión cuando todavía existe un paso lateral.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo buscar una trayectoria dentro del espacio libre y unirla con el recorrido existente.
+- **Código / Arquitectura generada:** Se incorporaron `adaptLine()` y `connectOnSurface()`. El motor identifica accesos sobre el recorrido y busca conexiones mediante A*, ampliando progresivamente el área explorada. La adaptación conserva los extremos originales y comprueba nuevamente el contacto con obstáculos.
+- **Validación y Corrección Humana:** Se agregaron pruebas de paso lateral, obstáculos alternados y conservación de extremos. También se comprobó mediante casos sintéticos que no se aceptaran conexiones cuando el recorrido queda fuera de las superficies disponibles. Estas pruebas no garantizan resolver todas las configuraciones posibles. Referencia: commit `8b69556`.
+
+## Distinción entre bloqueo y resultado no verificado
+
+- **Problema abordado:** Evitar que una búsqueda limitada o una falta de coincidencia cartográfica se informara como imposibilidad física de paso.
+- **Prompt / Herramienta utilizada:** Se pidió orientación a ChatGPT para diferenciar un espacio libre desconectado de una maniobra que no pudo comprobarse.
+- **Código / Arquitectura generada:** Se incorporó `SurfaceGeometryError` con estados `blocked` y `unknown`. La búsqueda local dispone de 500 ms, hasta 350 candidatos y accesos a no más de 25 metros del obstáculo.
+- **Validación y Corrección Humana:** Se revisó que agotar tiempo o candidatos produjera un resultado no verificado, sin afirmar que la vereda estuviera físicamente bloqueada. Los límites corresponden a partes de la búsqueda y no garantizan que toda la evaluación termine en 500 ms. Referencia: commit `8b69556`.
+
+
+## Preparación del contexto de superficies por simulación
+
+- **Problema abordado:** La evaluación del espacio disponible necesita conocer qué robot participa en la simulación, sus dimensiones y la versión de la red utilizada.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo conservar ese contexto en el backend y evitar depender de dimensiones enviadas libremente desde el navegador.
+- **Código / Arquitectura generada:** Se incorporó `surface_scenarios` para asociar simulación, robot y versión de red. El servidor recupera el ancho y el margen lateral desde el modelo almacenado y los conserva para el escenario.
+- **Validación y Corrección Humana:** Se incluyeron comprobaciones de existencia del robot y compatibilidad de red. El registro de un contexto existente comprueba que conserve el mismo robot y versión. Referencia: commit `fba26ac`.
+
+## Ubicación de incidentes según la cartografía disponible
+
+- **Problema abordado:** Un clic sobre el mapa no identifica por sí solo el área peatonal afectada. La ubicación necesita considerar la orientación de la vereda, sus límites y los posibles huecos.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo convertir una posición seleccionada en una propuesta de ubicación apoyada en la cartografía conocida.
+- **Código / Arquitectura generada:** Se incorporó un servicio de ubicación que utiliza superficies disponibles para proponer el área afectada. En esta etapa también contempla recurrir a un tramo conocido cuando falta el polígono correspondiente.
+- **Validación y Corrección Humana:** Se agregaron pruebas para veredas diagonales, clics descentrados, huecos interiores y ausencia de conexiones cercanas. También se distingue una consulta cartográfica fallida de una respuesta sin superficies. Referencia: commit `fba26ac`.
+
+## Vista previa del área afectada antes del guardado
+
+- **Problema abordado:** Guardar directamente el rectángulo dibujado puede incluir espacios ajenos a las superficies peatonales o afectar más de una superficie sin que el usuario lo advierta.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para estructurar una vista previa que recortara la selección sobre las superficies admitidas antes de registrar el incidente.
+- **Código / Arquitectura generada:** El backend intersecta el rectángulo con la cartografía peatonal, conserva las partes afectadas y prepara la geometría utilizada para evaluar colisiones. Cuando la selección alcanza varias superficies, el guardado exige una confirmación explícita.
+- **Validación y Corrección Humana:** Se incorporaron controles de dimensiones, coordenadas, cantidad de superficies y complejidad geométrica. Las selecciones sin una intersección útil se rechazan. Estos controles validan la selección respecto de la cartografía disponible, sin demostrar su correspondencia física exacta. Referencia: commit `fba26ac`.
+
+## Persistencia conjunta del incidente y su geometría
+
+- **Problema abordado:** El reporte y su geometría se almacenan en estructuras diferentes. Una escritura parcial puede dejar un incidente sin la información necesaria para representarlo o evaluarlo.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo guardar ambos registros mediante una transacción y tratar los reintentos de una solicitud.
+- **Código / Arquitectura generada:** Se incorporó `incident_surfaces`, relacionada con `incidents`. La operación de guardado utiliza una transacción y, ante un identificador existente, comprueba determinados datos del reporte antes de aceptar el reintento.
+- **Validación y Corrección Humana:** Se revisaron la confirmación y reversión de la transacción, junto con la comparación de simulación, descripción, fechas, efecto y selección. La comprobación del conflicto todavía no equivale a comparar toda la geometría. Su funcionamiento real requiere verificación con PostgreSQL. Referencia: commit `fba26ac`.
+
+## Prioridad del paso lateral sobre el recorrido vigente
+
+- **Problema abordado:** Un obstáculo sobre una vereda no siempre requiere abandonar el recorrido y buscar un desvío completo. Puede existir espacio suficiente para rodearlo dentro de las superficies conocidas.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre la posibilidad de intentar primero una adaptación local del recorrido y recurrir después a otra búsqueda en el grafo.
+- **Código / Arquitectura generada:** Se incorporó un servicio que intenta adaptar el recorrido preferido considerando superficies, obstáculos y dimensiones del robot. Si esa adaptación no resulta viable, puede solicitar otra ruta y descartar conexiones que no permitan el paso.
+- **Validación y Corrección Humana:** Se agregaron pruebas de conservación de extremos, adaptación alrededor de obstáculos y búsqueda alternativa para un robot demasiado ancho. También se contempla la conexión entre superficies contiguas. La primera alternativa válida no se presenta como garantía del desvío más corto. Referencia: commit `fba26ac`.
+
+## Compatibilidad entre superficies y restricciones anteriores
+
+- **Problema abordado:** La incorporación de incidentes sobre superficies debía convivir con los bloqueos existentes por áreas y tramos, sin convertir automáticamente cualquier incidencia en el cierre completo de una vereda.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo integrar los mecanismos anteriores con la nueva evaluación geométrica y qué información debía recibir el agente de replanificación.
+- **Código / Arquitectura generada:** Se añadieron adaptadores para incorporar restricciones anteriores al cálculo sobre superficies. El agente recibe resúmenes de incidentes, mientras las geometrías y la comprobación del paso permanecen en los servicios del backend.
+- **Validación y Corrección Humana:** Se incorporaron pruebas para comprobar que un rectángulo no cierre toda la vereda, que un tramo afecte su sección correspondiente y que permanezcan disponibles superficies separadas. También se comprueba que las precauciones no se conviertan automáticamente en bloqueos. Referencia: commit `fba26ac`.
+
+## Conservación de los extremos efectivos al replanificar
+
+- **Problema abordado:** El destino aceptado por el cálculo puede diferir del clic original. Reutilizar ese clic al solicitar un desvío puede producir una incompatibilidad con el recorrido que ya estaba siguiendo el robot.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre qué posición inicial y destino conservar al construir una nueva solicitud de replanificación.
+- **Código / Arquitectura generada:** Se añadió una utilidad para obtener el origen desde la posición actual del robot y el destino desde la última coordenada del recorrido aceptado. También comprueba la validez de las coordenadas.
+- **Validación y Corrección Humana:** Se incorporaron pruebas que reproducen el problema de reenviar el destino original y comprueban la conservación del destino aceptado y de la posición actual. La incorporación de la utilidad debe distinguirse de su integración completa en todos los consumidores de la interfaz. Referencia: commit `fba26ac`.
+
+
+## Editor visual de incidentes sobre el mapa
+
+- **Problema abordado:** Registrar un incidente sobre una superficie requiere ajustar su posición, tamaño y orientación, en lugar de depender únicamente de un punto seleccionado.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo diseñar un editor con Leaflet que permita manipular el área afectada directamente sobre el mapa.
+- **Código / Arquitectura generada:** Se incorporaron `SurfaceIncidentEditor` para el formulario y la coordinación de solicitudes, e `incident-map-editor.ts` para las capas y controles cartográficos. El área dispone de un control central para moverla, esquinas para redimensionarla y un control de rotación.
+- **Validación y Corrección Humana:** Se revisaron los límites de tamaño y la distinción entre arrastrar el mapa y seleccionar una ubicación. También se incluyó la retirada de controles, eventos y capas al cerrar el editor. Referencia: commit `96aa080`.
+
+## Vista previa vinculada con la selección vigente
+
+- **Problema abordado:** Los ajustes sucesivos pueden generar varias consultas y hacer que una respuesta anterior se muestre sobre una selección nueva.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para coordinar las consultas de ubicación y vista previa sin aplicar resultados que hubieran quedado desactualizados.
+- **Código / Arquitectura generada:** La ubicación utiliza cancelación y un número de operación. La vista previa espera 350 milisegundos antes de consultar y queda asociada a los datos enviados. El mapa representa el área afectada, el espacio libre y la maniobra local devueltos por el backend.
+- **Validación y Corrección Humana:** Se incorporaron comprobaciones de estructura para las respuestas y controles para descartar operaciones canceladas. Una vista previa de otra selección no habilita su confirmación. El navegador representa el análisis recibido, mientras el backend conserva el cálculo geométrico. Referencia: commit `96aa080`.
+
+## Confirmación y cancelación de la ubicación
+
+- **Problema abordado:** Modificar provisionalmente una ubicación no debería reemplazar de inmediato una selección ya confirmada ni permitir guardar mientras el ajuste está incompleto.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo separar la edición provisional, la confirmación de ubicación y el guardado definitivo del reporte.
+- **Código / Arquitectura generada:** Se añadieron estados de edición y confirmación, junto con una copia de la selección anterior. Confirmar finaliza la edición y desplaza la pantalla al formulario. Cancelar restaura la ubicación previa. Las selecciones sobre varias superficies requieren una confirmación adicional antes del guardado.
+- **Validación y Corrección Humana:** Se revisaron las condiciones que habilitan confirmar y guardar. Cambiar el área invalida su confirmación y exige una vista previa correspondiente. El desplazamiento al formulario no resuelve por sí solo el traslado del foco, que requiere revisión de accesibilidad. Referencia: commit `96aa080`.
+
+## Formulario de reportes y reintentos de guardado
+
+- **Problema abordado:** El editor necesita completar los datos del incidente, impedir envíos simultáneos y conservar el reporte cuando falla la respuesta o la actualización posterior del mapa.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo conectar el catálogo con el formulario y conservar una solicitud estable para sus reintentos.
+- **Código / Arquitectura generada:** El formulario carga tipos y valores predeterminados, permite elegir efecto, descripción y duración, y prepara el cuerpo del reporte. Si los datos no cambian, el reintento conserva identificador, fechas y contenido. También distingue un guardado seguido de un fallo de actualización.
+- **Validación y Corrección Humana:** Se incorporaron controles de duración, descripción, selección y envío pendiente. La ausencia de duplicados depende además del backend. En esta versión todavía no se valida el contenido de las confirmaciones de contexto y guardado. Referencia: commit `96aa080`.
+
+## Referencias cartográficas y explicación de sus límites
+
+- **Problema abordado:** El usuario necesita distinguir la superficie disponible, el área seleccionada y las limitaciones de la cartografía antes de registrar un incidente.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo presentar capas y mensajes que ayuden a revisar la ubicación sin atribuirles garantías que el sistema no ofrece.
+- **Código / Arquitectura generada:** Se incorporaron superficies por zona visible y fotografías aéreas de DC GIS de 2023 y 2025. Las escaleras y veredas ocultas se diferencian visualmente. En esta etapa también se informa cuando la ubicación utiliza tramos completos y no permite evaluar paso lateral.
+- **Validación y Corrección Humana:** Se revisaron los mensajes de efectos y alcance geométrico, aclarando que no se comprueban longitud del robot, radio de giro, pendiente ni condiciones actuales. Se añadieron estilos adaptables y mensajes de estado, aunque este commit no incorpora pruebas automatizadas nuevas ni acredita una revisión visual o de accesibilidad completa. Referencia: commit `96aa080`.
+
+
+## Separación del flujo de replanificación de la página de simulación
+
+- **Problema abordado:** `SimulationPage` concentraba la presentación, las solicitudes y la coordinación de la replanificación, lo que dificultaba revisar y probar ese comportamiento por separado.
+- **Prompt / Herramienta utilizada:** Consulta puntual a ChatGPT sobre cómo distribuir esas responsabilidades sin modificar el funcionamiento esperado de la simulación.
+- **Código / Arquitectura generada:** La ayuda se centró en orientar la separación entre un controlador independiente de React, un hook de integración y módulos de solicitudes y validación de respuestas. También se reunieron los contratos de rutas en un archivo compartido.
+- **Validación y Corrección Humana:** Se incorporaron pruebas con respuestas HTTP simuladas para comprobar la pausa previa, el envío de la posición y el recorrido pendientes, la prevención de solicitudes simultáneas y el descarte de respuestas canceladas. También se contemplaron rutas de otra red, coordenadas inválidas y alternativas rechazadas por falta de continuidad. Estas pruebas no sustituyen la comprobación completa en navegador. Referencia: commit `cc24449`.
+
+## Separación entre la configuración de Express y el arranque del servidor
+
+- **Problema abordado:** `index.ts` reunía la configuración de Express y la apertura del puerto, lo que dificultaba reutilizar la aplicación en pruebas sin ejecutar el arranque habitual.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo separar ambas responsabilidades y probar la configuración HTTP mediante Supertest.
+- **Código / Arquitectura generada:** Se incorporó `createApp()` en `app.ts` para configurar el lector JSON, las rutas y el endpoint de salud. `index.ts` quedó encargado de cargar las variables de entorno, crear la aplicación e iniciar la escucha.
+- **Validación y Corrección Humana:** Se añadieron pruebas con routers simulados para comprobar la respuesta de salud, el orden de los flujos de replanificación y el rechazo de cuerpos superiores a 1 MB antes de alcanzar esos routers. Estas pruebas verifican la composición HTTP, sin consultar PostgreSQL, cartografía ni IA. Referencia: commit `dbdd701`.
+
+## Separación del contexto del escenario y su persistencia
+
+- **Problema abordado:** `surface-incidents.ts` reunía el registro de incidentes con las consultas y reglas del contexto del escenario, dificultando revisar esas responsabilidades por separado.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo extraer el contexto a módulos propios sin modificar el comportamiento ni romper sus consumidores.
+- **Código / Arquitectura generada:** Se separaron las consultas SQL en `repositories/surface-context.ts`, las reglas en `services/surface-context.ts` y las estructuras en `types/surfaces.ts`. Se conservaron temporalmente las exportaciones anteriores para mantener la compatibilidad.
+- **Validación y Corrección Humana:** Se incorporaron pruebas para versiones incompatibles, robots inexistentes, asociaciones distintas y fallos de persistencia. Las pruebas simulan la base y no acreditan la ejecución del SQL en PostgreSQL. Referencia: commit `50c3bc6`.
+
+## Conservación de las dimensiones utilizadas por cada escenario
+
+- **Problema abordado:** Mantener una evaluación coherente requiere utilizar las dimensiones con las que se preparó el escenario, sin sustituirlas automáticamente por cambios posteriores del catálogo.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo conservar esa copia y comprobar las medidas necesarias para evaluar el paso.
+- **Código / Arquitectura generada:** La extracción mantuvo la lectura de dimensiones desde el modelo almacenado y la conservación del contexto original al repetir el registro. También centralizó `robotRadius()`, que calcula medio ancho más margen lateral.
+- **Validación y Corrección Humana:** Se añadieron casos para dimensiones desconocidas, negativas y no finitas, junto con un margen explícito de cero. Se mantuvo la diferencia entre cero y ausencia de información. Estas reglas ya existían y el commit las separa y amplía sus pruebas, sin introducir una validación nueva del resultado aritmético combinado. Referencia: commit `50c3bc6`.
+
+## Extracción del guardado transaccional a un repositorio
+
+- **Problema abordado:** El servicio de incidentes sobre superficies reunía la preparación del reporte con las consultas SQL y la administración de la transacción.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo separar la persistencia sin perder el guardado conjunto del incidente y su geometría.
+- **Código / Arquitectura generada:** Se incorporó `repositories/surface-reports.ts` y el contrato `SurfaceReportToInsert`. El servicio prepara fechas, efecto y límites, mientras el repositorio administra ambas escrituras mediante una misma conexión y transacción.
+- **Validación y Corrección Humana:** Se añadieron pruebas con un cliente PostgreSQL simulado para comprobar el orden de las escrituras, la confirmación conjunta y los reintentos. Se conserva la comparación de los campos previstos y de la selección para detectar conflictos, sin incorporar una comparación completa de toda la geometría. Referencia: commit `12c9d28`.
+
+## Conservación del error original y descarte de conexiones con fallos
+
+- **Problema abordado:** Si una escritura falla y también falla su reversión, el segundo error puede ocultar la causa original y la conexión puede regresar al pool en un estado inadecuado.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para revisar el tratamiento de errores de la transacción y la liberación de la conexión.
+- **Código / Arquitectura generada:** Se protegió el `ROLLBACK` con un manejo independiente. La operación conserva el error original y, cuando falla la reversión, descarta la conexión mediante `release(error)`. Los conflictos de reporte se traducen desde el servicio a una respuesta `409`.
+- **Validación y Corrección Humana:** Se incorporaron pruebas de fallos al iniciar, insertar y confirmar, además de reversión fallida y conexión no disponible. Las expectativas comprueban que se preserve el error original y se libere o descarte el cliente según corresponda. Son pruebas simuladas y no sustituyen la verificación con PostgreSQL real. Referencia: commit `12c9d28`.
+
+## Verificación de recorridos propuestos por el navegador
+
+- **Problema abordado:** Recibir coordenadas válidas no demuestra que el recorrido pertenezca a la red peatonal o permanezca dentro de superficies conocidas.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo comprobar la continuidad cartográfica de un recorrido antes de utilizarlo como propuesta para la replanificación.
+- **Código / Arquitectura generada:** Se incorporó `hasPedestrianPathProof()`. Cada parte del recorrido debe permanecer en una superficie compatible con el ancho del robot o coincidir con una conexión conocida del grafo. La comprobación contempla los intervalos completos, no únicamente sus extremos.
+- **Validación y Corrección Humana:** Se añadieron pruebas de trayectorias inventadas, superficies demasiado angostas y recorridos cuyos extremos son válidos pero atraviesan un hueco. Esta comprobación acredita correspondencia cartográfica, mientras la evaluación de obstáculos continúa en el motor de superficies. Referencia: commit `2e38b32`.
+
+## Continuidad entre conexiones del grafo
+
+- **Problema abordado:** Dos líneas pueden cruzarse o coincidir visualmente sin representar una conexión por la que el robot pueda pasar.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo distinguir una conexión real del grafo de una intersección puramente geométrica.
+- **Código / Arquitectura generada:** La verificación conserva los nodos originales y asigna identificadores propios a los vértices intermedios. Fuera de las superficies admitidas, una transición entre aristas requiere un nodo compartido y proximidad a ese nodo.
+- **Validación y Corrección Humana:** Se incorporaron casos que permiten giros entre aristas conectadas y rechazan saltos entre ejes que se cruzan sin compartir nodo. La tolerancia de cinco centímetros se utiliza para reconocer coincidencias numéricas, sin considerarla un ancho supuesto de vereda. Referencia: commit `2e38b32`.
+
+## Uso condicionado del recorrido preferido
+
+- **Problema abordado:** Era necesario conservar una maniobra válida ya disponible sin aceptar automáticamente cualquier trayectoria enviada por el cliente.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para integrar la verificación del recorrido preferido y mantener una alternativa de cálculo cuando no pudiera comprobarse.
+- **Código / Arquitectura generada:** El recorrido propuesto se entrega al núcleo únicamente si supera la comprobación cartográfica. Si no la supera, se descarta esa propuesta y se utiliza el cálculo habitual del servidor.
+- **Validación y Corrección Humana:** Se añadieron pruebas que descartan un rodeo inventado y obtienen una maniobra dentro de la vereda. Otro caso conserva una propuesta válida sin solicitar una ruta nueva al grafo. Descartar la propuesta no se interpreta como prueba de bloqueo físico. Referencia: commit `2e38b32`.
+
+## Recuperación de desvíos mediante retroceso
+
+- **Problema abordado:** Un obstáculo puede provocar que el grafo descarte un tramo completo aunque el robot todavía pueda retroceder por su parte libre hasta un cruce.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo recuperar esa posibilidad sin conectar arbitrariamente al robot con otra vereda.
+- **Código / Arquitectura generada:** Se incorporó `recoverSurfaceRoute()`. Busca conexiones desde el origen y el destino hacia los extremos de sus tramos, siguiendo geometrías del servidor. Después calcula el recorrido intermedio y reconstruye la trayectoria completa.
+- **Validación y Corrección Humana:** Se añadieron pruebas de retroceso hasta un cruce, conservación de ambos extremos y rechazo de veredas desconectadas. También se comprueba que la recuperación no habilite un tramo cerrado explícitamente por su identificador. Referencia: commit `2e38b32`.
+
+## Comprobación de seguridad de las conexiones recuperadas
+
+- **Problema abordado:** Recuperar una conexión no resulta válido si la retirada, la llegada o la unión final atraviesan otro obstáculo.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT qué comprobaciones aplicar a los conectores y al recorrido completo antes de aceptar la recuperación.
+- **Código / Arquitectura generada:** Se comprueban los conectores frente a las áreas de peligro, incluidos contactos con sus bordes. La ruta intermedia debe conservar la versión de red y conectar con los extremos solicitados. La trayectoria reconstruida vuelve a comprobarse y sus métricas se recalculan.
+- **Validación y Corrección Humana:** Se incorporaron casos que rechazan una retirada atravesada por otro obstáculo y un origen situado dentro de su margen. Estas comprobaciones se añadieron al flujo de recuperación, sin representar todavía una unificación de todos los criterios de contacto del motor. Referencia: commit `2e38b32`.
+
+## Separación del núcleo de cálculo y control de los intentos de recuperación
+
+- **Problema abordado:** Añadir recuperación al mismo módulo podía dificultar su revisión y provocar llamadas recursivas o intentos innecesarios ante errores ajenos al cálculo.
+- **Prompt / Herramienta utilizada:** Se pidió orientación a ChatGPT para separar el núcleo existente de la coordinación de verificación y recuperación.
+- **Código / Arquitectura generada:** El cálculo anterior se trasladó a `surface-routing-core.ts`, conservando las exportaciones utilizadas por otros módulos. La entrada coordinadora intenta recuperar únicamente errores `422`. Se acotaron las conexiones candidatas y su longitud, y la recuperación llama directamente al núcleo para evitar otra recuperación recursiva.
+- **Validación y Corrección Humana:** Se revisó que los demás errores se propagaran y que, si no hubiera recuperación, se conservara el error original. Los límites son parciales y no constituyen un presupuesto global de toda la evaluación. Las pruebas incorporadas utilizan escenarios sintéticos y dependencias simuladas, sin acreditar el funcionamiento completo en el despliegue. Referencia: commit `2e38b32`.
 
 
 ## Revisión técnica y consolidación del registro de IA
@@ -342,7 +616,7 @@ Inicialmente se propuso manual_walk_surfaces. Después se reconsideró esa soluc
 Elegí el archivo porque las correcciones serán mantenidas por mí y no requieren edición desde la aplicación. Los polígonos deberán identificar su procedencia; dibujarlos no demuestra que sean transitables. Queda pendiente comprobar que se utilicen tanto en el mapa como en las evaluaciones, sin crear conexiones indebidas entre caminos.
 
 
-### Separar la replanificación del uso de IA
+## Separar la replanificación del uso de IA
 
 **Problema abordado:**  
 Durante la revisión observé que Claude interviene para solicitar consultas y cálculos que ya están implementados en el backend. Esta dependencia no aporta a mi objetivo principal para la IA: interpretar reportes de robots y generar instrucciones preventivas sobre el recorrido.
@@ -357,7 +631,7 @@ Se propuso organizar la replanificación como un servicio independiente de Claud
 Decidí retirar la intermediación de IA en una secuencia de pasos obligatorios y conservar el cálculo y sus validaciones en el backend. La consulta se utilizó para contrastar la decisión e identificar las dependencias que deben actualizarse. Se mantendrán el contexto fijo, la lectura final de incidentes y la comparación de su contenido. La reducción de llamadas al proveedor deberá comprobarse mediante pruebas y mediciones de tiempo.
 
 
-### Reducción de la superficie de ataque
+## Reducción de la superficie de ataque
 
 **Problema abordado:**  
 Al retirar OpenRouteService, busqué reducir las integraciones y credenciales que debe mantener el MVP.
@@ -372,7 +646,7 @@ Se recomendó retirar el adaptador, la configuración de su clave y el modo que 
 Decidí incluir esa limpieza en el cambio. El beneficio es reducir código expuesto y credenciales que proteger; no implica que el proveedor sea inseguro ni sustituye los controles de acceso y límites de solicitudes.
 
 
-### Auditoría del backend — Sección 4
+## Auditoría del backend — Sección 4
 
 **Consulta:** Solicité ayuda para ordenar las observaciones que fui reuniendo al revisar el backend y contrastarlas con el alcance del MVP.
 
