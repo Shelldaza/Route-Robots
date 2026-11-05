@@ -12,7 +12,7 @@
 - **Problema abordado:** Error crítico al levantar el servidor de desarrollo (`TypeError: Cannot read properties of undefined (reading 'fileExists')`). Se detectó que el motor de ejecución estaba fallando en Node.js v22.18.0.
 - **Prompt / Herramienta utilizada:** Se le pasó el log de error completo a la IA (Gemini) indicando la versión exacta de Node.js utilizada en el entorno local.
 - **Código / Arquitectura generada:** La IA identificó un bug de compatibilidad conocido entre dependencias modernas y la librería tradicional `ts-node`. Recomendó desinstalar `ts-node` y reemplazarlo por `tsx` (TypeScript Execute), actualizando el script `dev` en el `package.json`.
-- **Validación y Corrección Humana:** Se investigó la sugerencia de la IA y se confirmó que `tsx` es el estándar actual de la industria para versiones recientes de Node.js (v20+). Se aplicó el cambio, lo que resolvió el error inmediatamente.
+- **Validación y Corrección Humana:** Se investigó la sugerencia de la IA y se adoptó tsx para el entorno utilizado y, tras el cambio, el servidor inició correctamente para versiones recientes de Node.js (v20+). Se aplicó el cambio, lo que resolvió el error inmediatamente.
 
 
 ## Mejora de la presentación del README
@@ -553,6 +553,167 @@
 - **Código / Arquitectura generada:** El cálculo anterior se trasladó a `surface-routing-core.ts`, conservando las exportaciones utilizadas por otros módulos. La entrada coordinadora intenta recuperar únicamente errores `422`. Se acotaron las conexiones candidatas y su longitud, y la recuperación llama directamente al núcleo para evitar otra recuperación recursiva.
 - **Validación y Corrección Humana:** Se revisó que los demás errores se propagaran y que, si no hubiera recuperación, se conservara el error original. Los límites son parciales y no constituyen un presupuesto global de toda la evaluación. Las pruebas incorporadas utilizan escenarios sintéticos y dependencias simuladas, sin acreditar el funcionamiento completo en el despliegue. Referencia: commit `2e38b32`.
 
+
+## Representación explícita del alcance de las restricciones
+
+- **Problema abordado:** Los incidentes por área, tramo y superficie utilizaban estructuras que podían confundirse. Una superficie podía conservar identificadores de tramos cercanos sin que eso significara el cierre completo de esas conexiones.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo distinguir estos alcances sin utilizar listas vacías ni interpretar indirectamente otros campos.
+- **Código / Arquitectura generada:** Se incorporó `RoutingRestriction` con las variantes `area`, `segments` y `surface`. Un servicio transforma los incidentes en restricciones explícitas y conserva sus metadatos, dejando las geometrías de superficie en el backend.
+- **Validación y Corrección Humana:** Se añadieron pruebas para distinguir las tres variantes, rechazar cierres por tramo sin identificadores y comprobar que las precauciones y los avisos no se conviertan en bloqueos. Referencia: commit `5d10306`.
+
+## Construcción de restricciones según el motor correspondiente
+
+- **Problema abordado:** Traducir todos los incidentes a rectángulos o cierres completos podía impedir un paso lateral válido o bloquear una vereda que no estaba afectada.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo preparar una solicitud que conservara el significado de cada restricción durante la coordinación mediante MCP.
+- **Código / Arquitectura generada:** Se centralizó la construcción de solicitudes. Las áreas se envían como `blockedAreas`, los cierres por tramo como `blockedSegmentIds` y las superficies como referencias `surfaceIncidentIds`. También se comprueba la compatibilidad de la versión de red.
+- **Validación y Corrección Humana:** Se incorporaron pruebas de la traducción y del intercambio mediante MCP. Los casos comprueban que una superficie no cierre automáticamente todos sus tramos cercanos y que las restricciones peatonales no se conviertan en bloqueos para el proveedor general. Referencia: commit `5d10306`.
+
+## Rechazo de restricciones de superficie sin procesar
+
+- **Problema abordado:** El motor general no evalúa la geometría de las superficies. Permitir que recibiera sus referencias sin comprobarlas podía provocar que una restricción se ignorara silenciosamente.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para establecer un control entre el motor de superficies y los motores inferiores.
+- **Código / Arquitectura generada:** Se añadió `consumeSurfaceRestrictions()`, que compara las referencias recibidas con los bloqueos de superficie proporcionados por el backend. Después de comprobarlas, las retira de la solicitud destinada al cálculo inferior. El motor general rechaza referencias pendientes de procesar.
+- **Validación y Corrección Humana:** Se agregaron pruebas para comprobar la correspondencia de identificadores, la versión de red y el rechazo desde el motor general. Este control verifica las referencias, sin sustituir la evaluación geométrica ni comparar por sí solo todo el contenido de los incidentes. Referencia: commit `5d10306`.
+
+## Validación final diferenciada de las alternativas
+
+- **Problema abordado:** La comprobación final debía respetar el alcance de cada bloqueo sin depender de lo que afirmara la explicación de Claude.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo reunir las comprobaciones finales y reutilizarlas desde el agente.
+- **Código / Arquitectura generada:** Se incorporó `validateRestrictedRoute()`. Comprueba proveedor y versión de red para restricciones peatonales, exige identificadores recorridos cuando hay cierres por tramo y verifica las intersecciones de las áreas rectangulares. La geometría de superficies continúa bajo responsabilidad de su motor.
+- **Validación y Corrección Humana:** Se añadieron casos que permiten utilizar la vereda opuesta, rechazan tramos cerrados y mantienen el rechazo de áreas bloqueadas. Las pruebas incorporadas utilizan datos y servicios simulados, sin demostrar una evaluación completa con el proveedor de IA y el despliegue. Referencia: commit `5d10306`.
+
+## Envío de resúmenes de incidentes a la IA
+
+- **Problema abordado:** El modelo necesita información sobre los incidentes, pero no sus polígonos completos ni los identificadores internos de las conexiones.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo limitar los datos enviados a Claude y mantener la información geométrica bajo responsabilidad del backend.
+- **Código / Arquitectura generada:** Se incorporó `summarizeRoutingIncident()`, que selecciona explícitamente seis campos: identificador, tipo, efecto, descripción, inicio y vencimiento. MCP utiliza esta representación al comunicar los incidentes al modelo.
+- **Validación y Corrección Humana:** Se añadieron pruebas para comprobar que el resumen no incluya coordenadas ni identificadores de tramos, incluso cuando el registro contiene geometrías extensas. La selección explícita evita incorporar automáticamente nuevos campos al mensaje enviado. Referencia: commit `cf1538e`.
+
+## Reutilización de consultas dentro de cada evaluación
+
+- **Problema abordado:** El agente, las herramientas MCP y el cálculo podían consultar repetidamente los mismos incidentes durante una evaluación.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo compartir esa lectura sin mezclar simulaciones ni eliminar la comprobación final de cambios.
+- **Código / Arquitectura generada:** Se creó `createSurfaceEvaluation()`, con una instancia por solicitud y promesas reutilizables para las consultas. Se fija la simulación y la fecha, y las herramientas comparten los datos iniciales. La validación final dispone de una lectura independiente.
+- **Validación y Corrección Humana:** Se incorporaron pruebas de consultas concurrentes, reutilización de resultados y rechazo de otra simulación o fecha antes de consultar. También se comprueba que la lectura final obtenga datos nuevos. Esta reutilización pertenece a cada evaluación y no constituye una caché global. Referencia: commit `cf1538e`.
+
+## Detección de cambios en incidentes que conservan su identificador
+
+- **Problema abordado:** Comparar únicamente los identificadores no permite detectar que un bloqueo cambió de ubicación, geometría o vigencia durante el cálculo.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para contrastar el contenido utilizado al comenzar con una lectura nueva antes de entregar la alternativa.
+- **Código / Arquitectura generada:** Se incorporó una huella SHA-256 de los registros completos de bloqueo, incluidas sus geometrías. La huella se calcula por partes y ordena registros y propiedades para evitar diferencias causadas únicamente por su orden.
+- **Validación y Corrección Humana:** Se añadieron pruebas de modificaciones con el mismo identificador y de independencia respecto del orden de propiedades y registros. También se contempla el rechazo de la alternativa cuando falla la comprobación final. La huella permanece en el backend. Referencia: commit `cf1538e`.
+
+## Recuperación de cartografía histórica cuando resulta necesaria
+
+- **Problema abordado:** Un incidente vencido puede conservar superficies útiles para reconectar al robot, aunque ya no deba restringir su movimiento. Consultar siempre todo el historial también añade trabajo innecesario.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo aprovechar esa cartografía sin reactivar obstáculos vencidos ni repetir cálculos que no aporten información.
+- **Código / Arquitectura generada:** Primero se calcula con los incidentes activos. Ante un error `422`, se consulta el historial y se buscan superficies adicionales que contengan el origen. Solo se repite el cálculo si aparecen geometrías nuevas, manteniendo los bloqueos activos originales.
+- **Validación y Corrección Humana:** Se incorporaron pruebas de recuperación mediante cartografía histórica, exclusión de incidentes futuros o vencidos y conservación del error cuando el historial no aporta superficies. Los casos utilizan dependencias simuladas y no acreditan el flujo completo en el despliegue. Referencia: commit `cf1538e`.
+
+## Separación de solicitudes y validadores de incidentes
+
+- **Problema abordado:** Las solicitudes HTTP y las comprobaciones de respuestas estaban mezcladas con responsabilidades de presentación, dificultando su reutilización y prueba.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo organizar módulos específicos para la API de incidentes y las operaciones del editor.
+- **Código / Arquitectura generada:** Se incorporaron `incident-api.ts`, `editor-api.ts` e `incident-validation.ts`. También se separaron los validadores peatonales de la representación de la red.
+- **Validación y Corrección Humana:** Se añadieron pruebas con respuestas simuladas para rechazar historiales de otra simulación, superficies incompletas, ubicaciones inválidas y efectos desconocidos. En esta etapa todavía no se valida el contenido de las confirmaciones de contexto y guardado. Referencia: commit `bae1dce`.
+
+## Estados explícitos para la edición de ubicaciones
+
+- **Problema abordado:** La selección, confirmación y cancelación necesitaban reglas claras para evitar guardar ubicaciones modificadas sin confirmar o alterar el borrador durante un guardado.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo representar esas transiciones mediante un reducer independiente de React y Leaflet.
+- **Código / Arquitectura generada:** Se creó `editor-state.ts` con fases de edición, ubicación, modificación, confirmación y guardado. Se conserva una copia de la selección y su alcance para restaurarlos al cancelar.
+- **Validación y Corrección Humana:** Se incorporaron pruebas que exigen confirmar antes de guardar, invalidan la confirmación al modificar el alcance y bloquean nuevas ediciones durante el guardado. También se comprueba que una selección tardía no reponga un borrador cancelado. Son pruebas de las transiciones, sin montar el editor completo. Referencia: commit `bae1dce`.
+
+## Preparación de solicitudes estables para reintentos
+
+- **Problema abordado:** Repetir un reporte después de perder la respuesta no debería generar otro identificador ni cambiar su fecha y contenido.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para extraer la preparación del envío y conservar la solicitud original mientras el borrador siga siendo equivalente.
+- **Código / Arquitectura generada:** Se incorporó `prepareSubmission()`, que genera el identificador, captura una única fecha para inicio y contexto temporal, y selecciona el endpoint según la ubicación. Una clave del borrador permite reutilizar la solicitud anterior.
+- **Validación y Corrección Humana:** Se añadió una prueba que comprueba la conservación del identificador, la fecha y el cuerpo al reintentar. La garantía de no duplicar registros continúa dependiendo de los controles de persistencia del backend. Referencia: commit `bae1dce`.
+
+## Extracción de reglas de vigencia y presentación de incidentes
+
+- **Problema abordado:** El historial y el mapa necesitaban compartir criterios de vigencia, combinación de registros y detección de bloqueos sobre el recorrido.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo separar esas reglas de las consultas HTTP y los componentes visuales.
+- **Código / Arquitectura generada:** Se creó `incident-rules.ts` con funciones para determinar estados temporales, combinar registros por identificador y preparar resúmenes. Los incidentes sobre superficies utilizan su geometría de colisión para comprobar su relación con el recorrido.
+- **Validación y Corrección Humana:** Se incorporaron casos de inicio inclusivo, vencimiento exclusivo, actualización sin duplicados y precauciones que no cierran el paso. También se comprobó con geometrías sintéticas que una superficie afectada no bloquee automáticamente la vereda opuesta. Este commit prepara los módulos y sus pruebas, sin completar todavía la migración de los componentes existentes. Referencia: commit `bae1dce`.
+
+## Separación de responsabilidades del formato compacto
+
+- **Problema abordado:** `pedestrian-compact.ts` concentraba la compilación, lectura del binario, consultas espaciales y búsqueda de rutas, dificultando revisar cada responsabilidad.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo dividir el módulo conservando el formato existente y la compatibilidad con sus consumidores.
+- **Código / Arquitectura generada:** Se separaron el modelo de datos, el compilador, la codificación, la decodificación, las coordenadas, los textos, las consultas espaciales y el cálculo de rutas. El archivo original quedó como entrada pública con las exportaciones anteriores.
+- **Validación y Corrección Humana:** Se incorporó una prueba que compila, codifica y decodifica una red sintética y compara sus consultas y recorridos. El objetivo fue conservar el comportamiento durante la reorganización, sin introducir otro motor de búsqueda. Referencia: commit `93992bd`.
+
+## Validación estructural de la captura binaria
+
+- **Problema abordado:** Reconocer la firma del archivo no alcanza para aceptar sus datos. Una captura truncada o con referencias inválidas puede impedir cargar correctamente la red.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para identificar las comprobaciones necesarias antes de utilizar las columnas del archivo compacto.
+- **Código / Arquitectura generada:** Se incorporó un decodificador que comprueba firma, versión, encabezado, tipos de columnas, posiciones, tamaños y alineación. También valida desplazamientos, referencias, coordenadas, distancias e identificadores ordenados y únicos de los tramos.
+- **Validación y Corrección Humana:** Se añadieron casos de encabezados inválidos, archivos truncados, descriptores alterados y contenido inconsistente. Estas comprobaciones detectan problemas estructurales, sin demostrar la autenticidad del archivo ni la cobertura real de la cartografía. Referencia: commit `93992bd`.
+
+## Lectura del binario sin duplicar las columnas
+
+- **Problema abordado:** La validación debía conservar la representación compacta y evitar reconstruir toda la red como objetos o copiar sus columnas al cargarla.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo utilizar vistas numéricas sobre el mismo almacenamiento y comprobar sus requisitos de alineación.
+- **Código / Arquitectura generada:** El decodificador construye vistas `Uint8Array`, `Uint32Array` y `Float64Array` sobre el buffer recibido. Se comprueba la alineación de cada columna y se exige una plataforma compatible con el orden de bytes del formato.
+- **Validación y Corrección Humana:** Se incorporó una prueba que comprueba que las vistas comparten el buffer, incluido un archivo ubicado en un desplazamiento alineado. Esto verifica la reutilización del almacenamiento, sin constituir una medición del consumo total de memoria del backend. Referencia: commit `93992bd`.
+
+## Unificación del transporte HTTP del frontend
+
+- **Problema abordado:** Distintos componentes y utilidades conservaban solicitudes propias o importaban el cliente HTTP desde módulos de otra funcionalidad.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo centralizar el transporte y separar las solicitudes de la representación visual.
+- **Código / Arquitectura generada:** Se adaptaron los consumidores para utilizar `api/client.ts` y se extrajeron módulos para reportes aleatorios, red peatonal y cartografía del editor. Los componentes delegan las solicitudes y reciben resultados comprobados.
+- **Validación y Corrección Humana:** Se incorporaron pruebas con `fetch` simulado para comprobar la conservación del cuerpo al reintentar, la propagación de cancelación y los mensajes de rechazo del backend. Esto no incorpora todavía la conservación del estado HTTP ni corrige el tratamiento de todos los fallos de lectura del JSON. Referencia: commit `5576c9b`.
+
+## Validación de respuestas según cada funcionalidad
+
+- **Problema abordado:** Compartir el transporte no elimina la necesidad de comprobar los contratos particulares antes de utilizar los datos recibidos.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para separar validaciones básicas reutilizables de las comprobaciones específicas de incidentes y cartografía.
+- **Código / Arquitectura generada:** Se incorporó `api/validation.ts` con comprobaciones de objetos, números finitos, coordenadas, fechas y límites geográficos. Cada módulo mantiene la validación de su respuesta, incluyendo reportes creados u omitidos, redes y superficies.
+- **Validación y Corrección Humana:** Se añadieron casos que rechazan incidentes de otra simulación y superficies incompletas. También se comprueba que una consulta de red sin tramos sea válida, evitando confundir ausencia de elementos con una respuesta incorrecta. Las pruebas verifican los contratos mediante respuestas simuladas. Referencia: commit `5576c9b`.
+
+## Separación del proveedor cartográfico y consultas compartidas
+
+- **Problema abordado:** El servicio de superficies mezclaba la interpretación de DC GIS con la caché y podía repetir consultas simultáneas para una misma zona.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo separar el proveedor y compartir las lecturas pendientes sin que cancelar un consumidor interrumpiera a los demás.
+- **Código / Arquitectura generada:** Se extrajo `dc-gis-provider.ts` y se incorporó `ReadCache`. Se conservan hasta ocho zonas durante cinco minutos y las solicitudes de una misma clave comparten una consulta pendiente. Si todos los consumidores cancelan, se cancela también la consulta al proveedor.
+- **Validación y Corrección Humana:** Se añadió una prueba con `fetch` simulado que inicia dos consultas, cancela una y comprueba que la otra recibe el resultado mediante una única llamada. La separación conserva las validaciones cartográficas anteriores, sin corregir todavía los límites aplicados después de descargar o procesar los datos. Referencia: commit `9b2ea44`.
+
+## Separación de la programación de reportes y las notificaciones
+
+- **Problema abordado:** `RandomFleetReports` reunía el calendario de generación, las solicitudes, los reintentos y la presentación de avisos, dificultando revisar cada responsabilidad.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo separar esa lógica conservando el comportamiento de los reportes automáticos.
+- **Código / Arquitectura generada:** Se extrajeron `useRandomReportScheduler`, `useFleetNotifications` y funciones para preparar el cuerpo y avanzar el calendario. El componente quedó centrado en la presentación. También se agregó una clave por simulación y versión de red para reiniciar su estado al cambiar de contexto.
+- **Validación y Corrección Humana:** Se revisó la conservación del cuerpo original al reintentar, el control de solicitudes simultáneas y la cancelación al desmontar. Se mantuvieron los ocho avisos recientes y la notificación de ocho segundos reales, independiente del reloj simulado. Este commit no incorpora pruebas nuevas ni resuelve la coherencia entre fechas y recorridos de reportes atrasados. Referencia: commit `d89fbc6`.
+
+## Separación entre historial y geometrías activas
+
+- **Problema abordado:** Consultar todos los incidentes completos transfería geometrías innecesarias para mostrar el historial, aunque muchos reportes todavía no estuvieran activos o ya hubieran vencido.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo separar los datos del historial de los necesarios para representar los incidentes vigentes.
+- **Código / Arquitectura generada:** Se incorporó `/api/surfaces/snapshot`, que devuelve resúmenes históricos y geometrías activas. PostgreSQL selecciona los campos necesarios, evitando recuperar las superficies de contexto completas. También se agregó una consulta individual de detalle que comprueba la pertenencia del incidente a la simulación.
+- **Validación y Corrección Humana:** Se añadieron pruebas con persistencia simulada para comprobar la separación de ambas representaciones. En el frontend se valida la simulación, la ausencia de identificadores duplicados y la presencia de los datos correspondientes a cada resumen activo. Referencia: commit `331f97a`.
+
+## Coordinación de lecturas y descarte de respuestas anteriores
+
+- **Problema abordado:** Las actualizaciones del historial podían superponerse o completar después de cambiar de simulación, publicando información de una operación anterior.
+- **Prompt / Herramienta utilizada:** Consulta a ChatGPT sobre cómo reemplazar lecturas pendientes y conservar únicamente los resultados del contexto vigente.
+- **Código / Arquitectura generada:** Se incorporó `LatestRead` y se adaptó `useSimulationIncidents` para cancelar lecturas anteriores, separar los registros por simulación y solicitar las geometrías de incidentes que entran en vigencia.
+- **Validación y Corrección Humana:** Se añadieron pruebas del descarte de lecturas reemplazadas o canceladas y del rechazo de respuestas con incidentes activos incompletos. Estos controles coordinan las consultas, sin resolver por sí solos todas las condiciones que deben impedir el movimiento mientras falta información. Referencia: commit `331f97a`.
+
+## Propagación de la cancelación HTTP a las consultas cartográficas
+
+- **Problema abordado:** Una consulta al proveedor podía continuar aunque el cliente hubiera interrumpido la solicitud y ya no necesitara su resultado.
+- **Prompt / Herramienta utilizada:** Se pidió ayuda a ChatGPT para vincular la desconexión HTTP con las operaciones cartográficas que admiten cancelación.
+- **Código / Arquitectura generada:** Se añadió una señal por solicitud y se transmitió a las consultas de superficies utilizadas en ubicación, vista previa y preparación del guardado. La señal se cancela ante una interrupción, diferenciándola de una respuesta terminada normalmente.
+- **Validación y Corrección Humana:** Se incorporaron pruebas de cierre incompleto, interrupción y finalización normal. También se ampliaron los casos de consultas compartidas, comprobando que cancelar un consumidor no interrumpa a otro y que una respuesta tardía cancelada no reponga la caché. Esto no garantiza detener cálculos síncronos ni deshacer escrituras confirmadas. Referencia: commit `331f97a`.
+
+## Actualización de incidentes sin duplicados ni cambios innecesarios
+
+- **Problema abordado:** Una nueva lectura puede devolver los mismos incidentes o modificar su geometría manteniendo el identificador. Comparar solo IDs puede ocultar cambios, mientras reemplazar siempre los objetos provoca actualizaciones innecesarias.
+- **Prompt / Herramienta utilizada:** Se consultó a ChatGPT cómo combinar registros conservando referencias cuando el contenido no cambia y detectando modificaciones relevantes.
+- **Código / Arquitectura generada:** Se adaptó la combinación por identificador para reutilizar registros equivalentes y aceptar cambios de contenido. La publicación de incidentes prioriza su geometría de superficie sobre los datos por tramo conservados por compatibilidad.
+- **Validación y Corrección Humana:** Se añadió una prueba que comprueba la reutilización de referencias idénticas y la detección de otra geometría con el mismo ID. Las verificaciones incorporadas no sustituyen una prueba completa del mapa y la simulación en navegador. Referencia: commit `331f97a`.
 
 ## Revisión técnica y consolidación del registro de IA
 
