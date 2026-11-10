@@ -755,3 +755,141 @@ También se eliminarán los archivos temporales que puedan quedar después de un
 La descarga y preparación de la red se realizarán fuera del proceso que atiende solicitudes, para evitar competir por su memoria y capacidad de cálculo.
 
 La captura puede omitir caminos o restricciones existentes. Por eso, se comprobarán la cobertura y las conexiones del sector elegido antes de utilizarlo en la demostración.
+
+## 5. Auditoría del frontend
+
+El frontend permite preparar el robot, seleccionar un recorrido, visualizar la cartografía, registrar incidentes y ejecutar la simulación.
+
+Se conservará la organización actual. Los cambios se concentran en adaptar la interfaz al alcance del MVP, corregir inconsistencias durante la simulación y retirar los controles asociados a las funciones que dejarán de estar disponibles.
+
+### 5.1. Organización y responsabilidades
+
+El frontend se organiza alrededor de dos momentos: preparar una entrega y seguir su ejecución. En la preparación se elige el robot y se marcan los extremos del recorrido. En la simulación se coordinan el avance, el reloj y los incidentes que pueden requerir un desvío.
+
+| Carpeta | Responsabilidad en RouteRobots |
+|---|---|
+| `pages/` | Organiza la preparación de la entrega y coordina el flujo de la simulación. |
+| `components/` | Presenta los formularios, los controles de avance, las métricas y el historial de incidentes. |
+| `hooks/` | Gestiona el movimiento, el reloj, las consultas de incidentes y la interacción con el mapa. |
+| `features/` | Agrupa la lógica de cada funcionalidad, como confirmar una ubicación, preparar un reintento o solicitar un desvío. |
+| `api/` | Centraliza el envío de solicitudes, los tiempos de espera y la cancelación. |
+
+Esta estructura permite probar comportamientos como cancelar una selección o conservar un reporte al reintentar sin montar el mapa ni ejecutar toda la simulación. El principal ajuste de coordinación será trasladar la preparación del contexto del robot desde el editor de incidentes al flujo del escenario, como se describe en 5.2.
+
+El backend determinará las restricciones, validará las trayectorias y guardará los reportes. El frontend mostrará el estado de cada operación y comprobará que las respuestas correspondan al escenario vigente antes de actualizar la pantalla.
+
+### 5.2. Preparación y estado de la simulación
+
+**Preparación del escenario**
+
+Actualmente, el recorrido inicial se solicita antes de preparar el contexto de superficies y consultar los incidentes. Ese orden no permite garantizar que el primer recorrido se evalúe frente a los incidentes iniciales previstos para el MVP.
+
+El usuario podrá elegir el robot, el origen y el destino en la misma pantalla. Antes de calcular el recorrido, el backend deberá asociar el escenario con la sesión, registrar el contexto del robot y preparar sus incidentes iniciales. La interfaz habilitará el inicio cuando reciba un recorrido válido para ese escenario.
+
+**Carga de incidentes**
+
+La interfaz distingue entre carga y error, pero esos estados no siempre impiden que el robot avance. Esto puede ocurrir al iniciar la simulación o cuando un incidente entra en vigencia y su geometría todavía no está disponible.
+
+Mientras falte información necesaria para evaluar el recorrido, el robot permanecerá pausado. Si la consulta falla, la interfaz mostrará el error y ofrecerá un reintento. Solo una consulta válida podrá confirmar que no hay incidentes activos.
+
+**Recorrido vigente y replanificación**
+
+En una comprobación aislada se observó que, después de aceptar un desvío, el controlador borra su alternativa al iniciar una nueva evaluación. Si esa evaluación falla, el robot conserva el desvío anterior, pero los títulos o las métricas pueden volver a describir la ruta inicial.
+
+Se mantendrán separados el recorrido vigente y el estado de la evaluación. Si la solicitud falla, la interfaz conservará el recorrido aceptado y sus acumulados, y mostrará el error por separado. Si el recorrido sigue bloqueado o falta información para evaluarlo, el robot permanecerá pausado.
+
+**Carga de la red peatonal**
+
+Algunos fallos de carga o diferencias de versión no se muestran. Esto puede dejar herramientas del mapa indisponibles sin explicar el motivo. La interfaz indicará qué función no pudo prepararse y permitirá reintentar la carga.
+
+**Acceso al escenario y recarga**
+
+El identificador generado por el navegador distingue una simulación, pero no acredita permiso para acceder a ella. El backend asociará cada escenario con una sesión y comprobará esa relación en las consultas y modificaciones.
+
+La recuperación del progreso tras recargar queda fuera del alcance inicial. La interfaz informará que recargar la página no restaura el reloj, la posición del robot ni el recorrido vigente.
+
+### 5.3. Comunicación HTTP y contratos
+
+El frontend utiliza un cliente HTTP común y módulos de API por funcionalidad. Estos módulos comprueban las respuestas antes de actualizar la simulación y permiten cancelar solicitudes que ya no se necesitan.
+
+**Confirmaciones del escenario y del guardado**
+
+Actualmente, el frontend descarta el contenido de la respuesta al registrar el contexto y tampoco comprueba el resultado devuelto al guardar un incidente. En una comprobación aislada, ambas operaciones se dieron por exitosas ante una respuesta `204` sin contenido. Ese código indica éxito, pero no permite identificar qué escenario se preparó o qué reporte se guardó.
+
+El backend devolverá confirmaciones breves y explícitas. El frontend comprobará que la confirmación del escenario corresponda a la operación solicitada. Al guardar un incidente, verificará que el identificador devuelto coincida con el enviado antes de mostrar el reporte como guardado.
+
+**Información de errores**
+
+El cliente HTTP conserva principalmente el mensaje de error. Pierde el código de estado y, cuando están presentes, datos como `Retry-After` o los errores por campo. Además, si se agota el tiempo de espera durante la lectura del JSON, el cliente puede devolver `null` y mostrar el problema como una respuesta inválida.
+
+Se distinguirán la cancelación, el tiempo de espera agotado, el rechazo HTTP, la respuesta inválida y el fallo de conexión. Así, la interfaz podrá indicar si corresponde corregir un campo, esperar o reintentar. El tratamiento de una respuesta de guardado perdida se describe en 5.4.
+
+**Contratos del MVP**
+
+Los recorridos deberán incluir la versión de la red local. Antes de aplicar un desvío, el frontend comprobará que la respuesta tenga la estructura esperada y corresponda a la evaluación en curso y a la versión de red del escenario. La validación geométrica seguirá a cargo del backend.
+
+Se retirarán de los contratos del frontend las variantes de registro por área general y por tramos. La aceptación de un desvío dejará de depender de `toolCalls` o de una explicación de Claude.
+
+### 5.4. Mapa y editor de incidentes
+
+**Capas y zona de la demostración**
+
+El mapa seguirá mostrando la red peatonal, los cruces, las superficies y el recorrido después de retirar OpenRouteService. Las líneas representan las conexiones de la red y los polígonos muestran las superficies que el backend utiliza para evaluar el paso.
+
+El mapa se abrirá sobre el sector elegido e indicará los límites de la zona admitida. Se conservarán las consultas por zona visible y nivel de zoom, la reutilización de resultados y el descarte de respuestas antiguas. Al retirar el selector del modo externo, se comprobará que el mapa conserve el encuadre y los puntos seleccionados durante la preparación del recorrido.
+
+**Visualización de superficies**
+
+Se añadirá un control para mostrar las superficies sin abrir el editor ni modificar el recorrido. Si se incorporan complementos GeoJSON, la capa utilizará el mismo conjunto cartográfico que el backend reconoce para sus cálculos.
+
+**Registro de incidentes sobre superficies**
+
+El editor registrará incidentes únicamente sobre superficies. Se retirarán la selección manual por tramos y sus controles y solicitudes asociados. Los tramos seguirán disponibles en el mapa y para el cálculo de rutas. Si el punto elegido no tiene cobertura admitida, el editor lo informará y permitirá elegir otra ubicación.
+
+Se conservarán la separación entre selección provisional y confirmada, la restauración de la selección anterior al cancelar, el descarte de vistas previas desactualizadas y la prevención de guardados simultáneos. Si el guardado está deshabilitado, se indicará junto al botón qué falta: confirmar la ubicación, completar los datos o esperar una vista previa válida.
+
+**Guardado y reintento**
+
+Si el guardado se confirma pero falla la actualización del mapa o del historial, la interfaz informará que el reporte quedó registrado y permitirá volver a cargar los datos. Si se pierde la respuesta del guardado, se indicará que el resultado todavía no se pudo confirmar. Si el servidor rechaza el reporte, se mostrará el motivo.
+
+Cuando el resultado sea desconocido, el reintento conservará el identificador y el contenido del reporte original. El backend deberá reconocer ese reintento y evitar que se cree un duplicado, según lo previsto en 4.4.
+
+### 5.5. Reloj y movimiento
+
+**Pausa entre fotogramas**
+
+Al pausar, el reloj contabiliza el tiempo transcurrido desde su última actualización, mientras que el robot puede quedar en la posición del último fotograma. En una comprobación aislada, al pausar a los 750 ms con el último fotograma a los 500 ms, el reloj registró 750 ms y el movimiento solo 500 ms.
+
+El reloj y el movimiento utilizarán la misma referencia temporal. Al pausar o cambiar la velocidad, ambos contabilizarán el intervalo pendiente antes de aplicar el cambio. Esto se resolverá en el frontend sin enviar solicitudes al backend por cada fotograma.
+
+**Avance manual de dos minutos**
+
+El control adelanta el robot y el reloj por un intervalo completo. Si un bloqueo entra en vigencia durante ese intervalo, el robot puede pasar por la zona afectada antes de que se evalúe.
+
+El avance deberá detenerse en el siguiente cambio de vigencia que pueda afectar el recorrido y comprobar si corresponde continuar. Si esa comprobación queda pendiente, se deshabilitará el avance rápido que desplaza al robot.
+
+**Pestaña en segundo plano**
+
+La simulación no contempla explícitamente que el usuario cambie de pestaña. En segundo plano, el navegador puede actualizar el reloj y la animación con ritmos diferentes.
+
+Para el MVP se propone pausar ambos al ocultar la página y dejar que el usuario reanude la simulación al volver. Este comportamiento deberá comprobarse en el navegador.
+
+**Aceptación de la trayectoria recibida**
+
+Al cargar un desvío, `loadRoute()` admite una pequeña diferencia entre su primer punto y la posición actual del robot, y sustituye ese punto por la posición del robot. En una comprobación con geometría sintética, esa sustitución hizo que el primer segmento atravesara un obstáculo que la ruta recibida evitaba.
+
+El backend deberá incluir y validar la conexión desde la posición actual del robot. Si el desvío recibido no es compatible con esa posición, el frontend lo rechazará sin modificar sus coordenadas. Este hallazgo corresponde al ajuste que hace el navegador después de recibir la ruta. El ajuste del origen dentro del backend se trata en 4.5.
+
+### 5.6. Formularios, batería y métricas
+
+Se conservará la separación entre el modelo y la unidad del robot. Los formularios aplicarán los límites definidos en 4.3 y retirarán el largo, la pendiente máxima, la procedencia y las notas del modelo. Los errores se mostrarán junto al campo correspondiente. Las medidas desconocidas se distinguirán de los valores en cero.
+
+La carga inicial de batería se elegirá al preparar la entrega. Admitirá valores de **0 a 100 %**, con **100 % predeterminado**. La interfaz distinguirá la energía disponible al inicio, el consumo estimado del recorrido, el consumo acumulado y la energía restante estimada.
+
+La interfaz mostrará el resultado de la evaluación de autonomía del backend. Si la energía estimada no alcanza para completar el recorrido y regresar con la reserva prevista, o si el regreso no se puede verificar, se informará el motivo y no se habilitará el inicio ni se aplicará el desvío, según corresponda. Esta evaluación se basa en las estimaciones del simulador y no garantiza la autonomía de un robot real.
+
+La distancia, la duración y el consumo se mostrarán para el recorrido aceptado. Una evaluación pendiente o fallida no reemplazará esas métricas.
+
+### 5.7. Presentación
+
+La portada se creó como un boceto mientras se priorizaba el desarrollo del backend. Queda pendiente mejorar su diseño y actualizar los textos para distinguir lo que el MVP ya permite hacer de las funciones previstas, como el aprendizaje compartido y la telemetría. También se retirarán las referencias a MCP cuando deje de intervenir en la replanificación.

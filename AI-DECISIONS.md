@@ -814,3 +814,11 @@ Decidí incluir esa limpieza en el cambio. El beneficio es reducir código expue
 **Aporte de la IA:** Colaboró en la revisión de los puntos planteados, sus consecuencias y las posibles correcciones. También ayudó a estructurar los hallazgos sobre API, persistencia, geometría y replanificación, distinguiendo observaciones de código, reproducciones aisladas y cambios pendientes.
 
 **Decisión:** Documentar las correcciones justificadas y conservar los controles útiles, evitando refactorizaciones que no aporten al objetivo del proyecto.
+
+## Auditoría del frontend — Sección 5
+
+**Consulta:** Pedí apoyo para revisar el frontend a partir de las decisiones tomadas para el backend y organizar las observaciones sobre estado, movimiento, formularios y comunicación HTTP.
+
+**Aporte de la IA:** Ayudó a contrastar los comportamientos encontrados, identificar inconsistencias y ordenar la sección. Colaboró en las comprobaciones aisladas y en la interpretación de las pruebas disponibles, aclarando sus limitaciones.
+
+**Decisión:** Mantener las validaciones de respuestas y los controles de interfaz, dejando las garantías del dominio en el backend. Registrar las correcciones pendientes sin proponer una reorganización general.
